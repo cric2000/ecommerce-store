@@ -21,13 +21,13 @@ describe('rupee and paise conversion', () => {
     '', ' ', ' 1.00', '1.00 ', '1\n', '-1', '-0.01', '+1', '.50',
     '1.', '1.001', '1e2', 'NaN', 'Infinity', '1,000', 1.23, null, undefined,
   ])('rejects invalid decimal input %j', (rupees) => {
-    expect(() => rupeesToPaise(rupees)).toThrowError(expect.objectContaining({
+    expect(() => rupeesToPaise(rupees)).toThrow(expect.objectContaining({
       code: 'INVALID_REQUEST',
     }));
   });
 
   test('rejects a decimal amount one paise above the supported maximum', () => {
-    expect(() => rupeesToPaise('90071992547409.92')).toThrowError(expect.objectContaining({
+    expect(() => rupeesToPaise('90071992547409.92')).toThrow(expect.objectContaining({
       code: 'AMOUNT_OUT_OF_RANGE',
     }));
   });
@@ -55,22 +55,22 @@ describe('line totals and sums', () => {
     const maximum = Number.MAX_SAFE_INTEGER;
     expect(calculateLineTotal(maximum, 1)).toBe(maximum);
     expect(sumPaise([maximum - 1, 1])).toBe(maximum);
-    expect(() => calculateLineTotal(maximum, 2)).toThrowError(expect.objectContaining({
+    expect(() => calculateLineTotal(maximum, 2)).toThrow(expect.objectContaining({
       code: 'AMOUNT_OUT_OF_RANGE',
     }));
-    expect(() => sumPaise([maximum, 1])).toThrowError(expect.objectContaining({
+    expect(() => sumPaise([maximum, 1])).toThrow(expect.objectContaining({
       code: 'AMOUNT_OUT_OF_RANGE',
     }));
   });
 
   test('rejects invalid inputs before arithmetic', () => {
-    expect(() => calculateLineTotal(100, 0)).toThrowError(expect.objectContaining({
+    expect(() => calculateLineTotal(100, 0)).toThrow(expect.objectContaining({
       code: 'INVALID_QUANTITY',
     }));
-    expect(() => calculateLineTotal(-1, 1)).toThrowError(expect.objectContaining({
+    expect(() => calculateLineTotal(-1, 1)).toThrow(expect.objectContaining({
       code: 'AMOUNT_OUT_OF_RANGE',
     }));
-    expect(() => sumPaise([10, -1])).toThrowError(expect.objectContaining({
+    expect(() => sumPaise([10, -1])).toThrow(expect.objectContaining({
       code: 'AMOUNT_OUT_OF_RANGE',
     }));
   });
@@ -98,16 +98,16 @@ describe('percentage discounts and final totals', () => {
   });
 
   test('rejects unsupported percentages and negative totals instead of clamping', () => {
-    expect(() => calculateDiscount(100, 101)).toThrowError(expect.objectContaining({
+    expect(() => calculateDiscount(100, 101)).toThrow(expect.objectContaining({
       code: 'INVALID_REQUEST',
     }));
-    expect(() => calculateDiscount(-1, 10)).toThrowError(expect.objectContaining({
+    expect(() => calculateDiscount(-1, 10)).toThrow(expect.objectContaining({
       code: 'AMOUNT_OUT_OF_RANGE',
     }));
-    expect(() => calculateTotal(100, 101)).toThrowError(expect.objectContaining({
+    expect(() => calculateTotal(100, 101)).toThrow(expect.objectContaining({
       code: 'AMOUNT_OUT_OF_RANGE',
     }));
-    expect(() => calculateTotal(100, -1)).toThrowError(expect.objectContaining({
+    expect(() => calculateTotal(100, -1)).toThrow(expect.objectContaining({
       code: 'AMOUNT_OUT_OF_RANGE',
     }));
   });

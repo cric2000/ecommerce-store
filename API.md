@@ -1,9 +1,9 @@
 # HTTP API contract
 
-**Status:** Only `GET /health` exists today. All other endpoints and shared error
-handling below are the planned contract for later tasks, pending review.
-This document does not claim they already work. See [DECISIONS.md](DECISIONS.md)
-for the reasons, invariants, and limitations.
+**Status:** Health, catalog listing, cart lifecycle, and shared JSON error handling
+are implemented. Checkout, order retrieval, coupons, and reporting are planned
+for later tasks. See endpoint statuses below and [DECISIONS.md](DECISIONS.md) for
+the reasons, invariants, and limitations.
 
 ## Common conventions
 
@@ -14,6 +14,9 @@ for the reasons, invariants, and limitations.
   where explicitly stated otherwise. Body-bearing endpoints require a JSON object,
   including `{}` when no properties are needed. For endpoints documented with no
   body, clients should omit it. No query parameters are defined.
+- JSON bodies are limited to 100 KiB by the Express parser. Larger bodies receive
+  413 `PAYLOAD_TOO_LARGE`. Empty bodies on JSON routes receive 400 `INVALID_REQUEST`;
+  send `{}` when an empty object is required.
 - IDs are opaque, case-sensitive strings. Product IDs come from the catalog;
   clients use returned cart/order IDs and coupon codes without interpreting them.
 - Reject unknown JSON properties, malformed JSON, wrong types, and numeric strings.
@@ -38,12 +41,12 @@ for the reasons, invariants, and limitations.
 | Method and path | Purpose | Success | Administrative | Status |
 | --- | --- | --- | --- | --- |
 | `GET /health` | Liveness | 200 | No | Implemented |
-| `GET /products` | Current catalog | 200 | No | Planned |
-| `POST /carts` | Create cart | 201 | No | Planned |
-| `GET /carts/:cartId` | Read cart/current totals | 200 | No | Planned |
-| `POST /carts/:cartId/items` | Add/increment item | 200 | No | Planned |
-| `PATCH /carts/:cartId/items/:productId` | Set item quantity | 200 | No | Planned |
-| `DELETE /carts/:cartId/items/:productId` | Remove item | 200 | No | Planned |
+| `GET /products` | Current catalog | 200 | No | Implemented |
+| `POST /carts` | Create cart | 201 | No | Implemented |
+| `GET /carts/:cartId` | Read cart/current totals | 200 | No | Implemented |
+| `POST /carts/:cartId/items` | Add/increment item | 200 | No | Implemented |
+| `PATCH /carts/:cartId/items/:productId` | Set item quantity | 200 | No | Implemented |
+| `DELETE /carts/:cartId/items/:productId` | Remove item | 200 | No | Implemented |
 | `POST /carts/:cartId/checkout` | Place order, optional coupon | 201 (also replay) | No | Planned |
 | `GET /orders/:orderId` | Read purchase snapshot | 200 | No | Planned |
 | `POST /admin/coupons` | Generate one eligible coupon | 201 | Yes | Planned |
@@ -188,14 +191,16 @@ generic message without exception details.
 | 409 | `INVALID_COUPON` | Well-formed code does not identify a coupon |
 | 409 | `COUPON_ALREADY_REDEEMED` | Coupon already belongs to another successful order |
 | 409 | `NO_ELIGIBLE_MILESTONE` | No reached, unrewarded milestone is available |
+| 413 | `PAYLOAD_TOO_LARGE` | JSON request body exceeds 100 KiB |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | Body-bearing route is not sent as JSON |
 | 422 | `AMOUNT_OUT_OF_RANGE` | Computed monetary value or report quantity aggregate cannot be represented safely |
 | 500 | `INTERNAL_ERROR` | Unexpected server failure |
 
 Malformed JSON/shape, media-type, range, and unexpected errors apply wherever
 relevant in addition to the important endpoint-specific errors listed below.
-These shared error responses are planned; the current health-only scaffold does
-not yet normalize Express errors/404s.
+Implemented routes normalize domain failures, malformed JSON, oversized bodies,
+and unknown routes into this envelope. Checkout/coupon/order-specific errors
+remain planned with their endpoints.
 
 ## GET /health
 
@@ -206,16 +211,16 @@ HTTP, not persistence, inventory integrity, or payment readiness.
 
 ## GET /products
 
-**Planned. Non-administrative.** No request body.
+**Implemented. Non-administrative.** No request body.
 
 Response: **200 OK**, `{ "currency": "INR", "products": [Product] }`, using the
-Product shape above. At least five products will be seeded at startup, including
-one with limited inventory. This read does not reserve inventory. No expected
-domain errors for a normal request.
+Product shape above. Five products are seeded at startup, including one with
+inventory of one; see README.md for actual seed values. This read does not reserve
+inventory. No expected domain errors for a normal request.
 
 ## POST /carts
 
-**Planned. Non-administrative.** Request body: `{}`.
+**Implemented. Non-administrative.** Request body: `{}`.
 
 Response: **201 Created**, an empty active Cart. Include
 `Location: /carts/<returned-id>`. This endpoint has no idempotency behavior;
@@ -223,7 +228,7 @@ repeating it creates another cart. Important error: `INVALID_REQUEST` (400).
 
 ## GET /carts/:cartId
 
-**Planned. Non-administrative.** No request body.
+**Implemented. Non-administrative.** No request body.
 
 Response: **200 OK**, a Cart with current catalog prices/inventory. Works for
 active and checked-out carts. Important errors: `CART_NOT_FOUND` (404),
@@ -232,7 +237,7 @@ Insufficient current stock is shown via `isAvailable: false`, not a read error.
 
 ## POST /carts/:cartId/items
 
-**Planned. Non-administrative.** Example body:
+**Implemented. Non-administrative.** Example body:
 
 ```json
 { "productId": "product-1", "quantity": 2 }
@@ -249,7 +254,7 @@ Important errors: `INVALID_REQUEST`/`INVALID_QUANTITY` (400);
 
 ## PATCH /carts/:cartId/items/:productId
 
-**Planned. Non-administrative.** Example body:
+**Implemented. Non-administrative.** Example body:
 
 ```json
 { "quantity": 3 }
@@ -265,7 +270,7 @@ Important errors: `INVALID_REQUEST`/`INVALID_QUANTITY` (400);
 
 ## DELETE /carts/:cartId/items/:productId
 
-**Planned. Non-administrative.** No request body. Remove the existing line.
+**Implemented. Non-administrative.** No request body. Remove the existing line.
 
 Response: **200 OK**, updated Cart. Important errors:
 `CART_NOT_FOUND`/`CART_ITEM_NOT_FOUND` (404), `CART_ALREADY_CHECKED_OUT` (409).

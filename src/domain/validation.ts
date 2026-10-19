@@ -1,6 +1,33 @@
 import { DomainError } from './errors.js';
 import type { Paise } from './types.js';
 
+export function validateObject(
+  value: unknown,
+  allowedFields: readonly string[],
+): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new DomainError('INVALID_REQUEST', 'Body must be a JSON object');
+  }
+
+  for (const field of Object.keys(value)) {
+    if (!allowedFields.includes(field)) {
+      throw new DomainError('INVALID_REQUEST', 'Unknown body property', { field });
+    }
+  }
+
+  return value as Record<string, unknown>;
+}
+
+export function validateProductId(value: unknown): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new DomainError('INVALID_REQUEST', 'Product ID must be a nonblank string', {
+      field: 'productId',
+    });
+  }
+
+  return value;
+}
+
 export function validateQuantity(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
     throw new DomainError(

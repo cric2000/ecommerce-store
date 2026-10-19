@@ -16,8 +16,8 @@ describe('quantity validation', () => {
     0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, -Infinity,
     '2', '', null, undefined, true, {}, [],
   ])('rejects invalid quantity %j without coercion', (quantity) => {
-    expect(() => validateQuantity(quantity)).toThrowError(DomainError);
-    expect(() => validateQuantity(quantity)).toThrowError(expect.objectContaining({
+    expect(() => validateQuantity(quantity)).toThrow(DomainError);
+    expect(() => validateQuantity(quantity)).toThrow(expect.objectContaining({
       code: 'INVALID_QUANTITY',
       details: { field: 'quantity' },
     }));
@@ -33,7 +33,7 @@ describe('discount percent validation', () => {
   test.each([0, -1, 101, 10.5, NaN, Infinity, '10', null, undefined])(
     'rejects invalid percent %j',
     (percent) => {
-      expect(() => validateDiscountPercent(percent)).toThrowError(expect.objectContaining({
+      expect(() => validateDiscountPercent(percent)).toThrow(expect.objectContaining({
         code: 'INVALID_REQUEST',
         details: { field: 'discountPercent' },
       }));
@@ -50,7 +50,7 @@ describe('paise validation', () => {
   test.each([-1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, '100', null])(
     'rejects unsafe or non-integer paise %j',
     (amount) => {
-      expect(() => validatePaise(amount, 'subtotalPaise')).toThrowError(expect.objectContaining({
+      expect(() => validatePaise(amount, 'subtotalPaise')).toThrow(expect.objectContaining({
         code: 'AMOUNT_OUT_OF_RANGE',
         details: { field: 'subtotalPaise' },
       }));
