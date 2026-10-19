@@ -2,12 +2,13 @@
 
 ## Status and scope
 
-This document records the proposed contract for the remaining backend tasks.
+This document records the implemented backend contract and deferred concerns.
 Project tooling, application/server entry points, `GET /health`, domain types,
 quantity/money validation, exact money helpers, seeded catalog, cart lifecycle,
 JSON errors, checkout with optional coupons, order retrieval, coupon generation,
 shared mutation locking, idempotent replay, and read-only reporting are
-implemented. Final documentation review and the assignment audit remain pending.
+implemented. API/operational documentation review is complete; the final
+assignment audit remains pending.
 The decisions below describe the implementation and deferred concerns. See
 [API.md](API.md) for the HTTP contract.
 
@@ -275,8 +276,9 @@ codes with a small shared JSON envelope.
 
 **Choice:** Return `{ "error": { "code": "...", "message": "..." } }`, with optional
 structured `details`. Use 400 for malformed/invalid input, 404 for missing
-resources, 409 for state conflicts, 415 for unsupported request content types,
-422 for unsupported calculated money ranges, and 500 for unexpected errors.
+resources, 409 for state conflicts, 413 for oversized JSON bodies, 415 for
+unsupported request content types/charsets/encodings, 422 for unsafe calculated
+money or report quantity ranges, and 500 for unexpected errors.
 Keep validation/business rules in services/domain helpers; routes translate HTTP
 input and results. A shared error handler serializes known errors and hides
 internal exception details for unexpected failures. See API.md for precise codes.
@@ -323,47 +325,47 @@ objects, so changing a returned report cannot alter service state. A read while
 checkout is queued sees the previous committed state; later reads see the complete
 new state, including coupon redemption and the discounted order together.
 
-## Planned scope, deferrals, and validation
+## Implemented scope, deferrals, and validation
 
 **Implemented now:** Express health route; separate app/server; strict TypeScript;
 Vitest HTTP health test; npm scripts/lockfile; installation/run instructions; this
-design and the planned API contract; domain types for products, stored carts,
+design and the API contract; domain types for products, stored carts,
 current-price cart views, coupons, order snapshots, and reports; shared domain
 errors and quantity/percentage/paise validators; exact money helpers and focused
 tests for their validation, rounding, and range boundaries.
 
-Task 4 adds five seeded products (including one with inventory of one), a per-app
-in-memory store, catalog/cart services and routes, strict request object checks,
+The service includes five seeded products (including one with inventory of one),
+a per-app in-memory store, catalog/cart services and routes, strict request object checks,
 and common HTTP error responses. Cart tests exercise full edits, stock checks
 without reservations, current price/availability changes, missing products,
 failed-write preservation, detached responses, and request/response contracts.
 Express's existing 100 KiB JSON parser limit returns a structured 413 error.
 
-Task 5 adds checkout without coupons and order retrieval. Checkout revalidates
+Checkout supports optional coupons and order retrieval. Checkout revalidates
 stored quantities and unique product lines, current catalog data, and stock;
 stores an order snapshot; reduces inventory; and closes the cart in one staged
 state replacement. Tests cover failed checkout preserving all state, repeat
 checkout rejection, zero-total purchases, arithmetic overflow, detached receipts,
 and snapshots surviving catalog changes/deletion. Success means payment success
-without an actual payment integration. Coupon support is added in Task 7 below.
+without an actual payment integration.
 
-Task 6 adds the shared mutex and successful checkout key records. Service and HTTP
-tests cover last-item contention, simultaneous identical retries, conflicting key
+The shared mutex and successful checkout key records coordinate writes. Service
+and HTTP tests cover last-item contention, simultaneous identical retries, conflicting key
 reuse, failed attempts leaving keys available, and replay after catalog deletion.
 Mutex tests check FIFO ordering, exclusion across an await, and release after both
-synchronous and asynchronous failures. Existing cart/order tests now await
-mutations and use `.rejects.toThrow()` for their errors.
+synchronous and asynchronous failures. Cart/order tests await mutations and use
+`.rejects.toThrow()` for their errors.
 
-Task 7 adds fixed reward configuration, admin coupon generation, and optional
-checkout coupons. Available/redeemed coupon state, the applied discount snapshot,
-and the optional code in request identity participate in the existing locked
+Fixed reward configuration, admin coupon generation, and optional checkout coupons
+are implemented. Available/redeemed coupon state, the applied discount snapshot,
+and the optional code in request identity participate in the locked
 commit. Tests cover reached/duplicate/backlogged milestones, concurrent generation,
 coexisting coupons, failed stock/money validation preserving available coupons,
 competing redemption, matching replay, changed-code conflicts, half-up rounding,
 and zero-total successful purchases. Generation also waits for a queued checkout
 and reads its newly reached milestone under the same lock.
 
-Task 8 adds the read-only admin report and service/HTTP tests for quantities,
+The read-only admin report has service/HTTP tests for quantities,
 revenue, discounts, coupon counts, and placed-order counts. Tests reconcile a
 mixed purchase history against receipts/coupon records, repeat reads while a
 coupon milestone is eligible, check detached responses, and verify independence
@@ -380,29 +382,41 @@ belong to cart views and purchase prices belong to order snapshots. Domain error
 carry codes/messages/details only; HTTP status mapping and shared Express error
 handling now live separately in `src/http/errors.ts`.
 
-**Required and pending:** Final API/operational documentation review and the
-assignment audit. Checkout stock, coupon, key-replay, and report reconciliation
-behavior are implemented/tested for the single-process store. Clean-checkout
-verification and the final requirements audit remain separate pending tasks; no
-multi-instance coordination or completed submission is claimed.
+The API review covers each endpoint's method, path, request/response, status,
+important errors, and administrative status. The executable example in
+`examples/checkout.mjs` calls every endpoint, checks cart edits and order receipts,
+redeems a milestone coupon, replays checkout, and verifies the final report and
+stock. It requires a fresh seeded server with interval 5 and discount 10;
+README.md explains its state changes and expected results.
 
-Planned focused checks follow the agreed tasks: money/quantity edge cases; cart
-validation; failed checkout leaving all state unchanged; two carts competing for
-the last item; simultaneous retries with one key; order snapshots after catalog
-changes; duplicate milestone generation; two checkouts competing for a coupon;
-failed checkout preserving a coupon; and read-only report reconciliation. Run
-`npm test`, `npm run typecheck`, and relevant build/HTTP checks as tasks land.
+HTTP regression checks distinguish unsupported JSON charsets/content encodings
+(415) from malformed JSON (400), oversized bodies (413), and unexpected service
+failures (500). Unexpected exceptions receive a generic message without private
+details. The parser review exposed unsupported charset/encoding errors becoming
+500 responses; these now use the existing `UNSUPPORTED_MEDIA_TYPE` code.
+
+**Operational verification:** I verified a fresh source copy without existing
+`node_modules` or `dist`, using Node.js 24.21.0 and npm 11.19.0. Locked installation
+with `npm ci` (using a writable npm package cache), all 211 tests,
+`npm run typecheck`, and `npm run build` passed. The executable example passed against
+both `npm start` and `npm run dev`, using port 3109 and explicit interval 5 /
+discount 10 settings. Restarting between runs restored the seed and empty state.
+The example checked all endpoints, six orders, gross revenue 67500 paise,
+discounts 500, net revenue 67000, and one redeemed coupon.
+
+**Required and pending:** The final assignment audit. No multi-instance
+coordination or completed submission is claimed.
 
 **Intentionally deferred:** Persistence/restart recovery, multi-instance
 coordination, authentication/authorization, real payments, reservations, coupon
 ownership/expiry/stacking, taxes/shipping, refunds/cancellations, pagination,
 idempotency retention policies, deployment infrastructure, and load testing.
-Simple CI/logging may be considered during Task 9. A frontend is optional and
-only considered after backend requirements are sound.
+Request logging and CI are also deferred to keep this service focused on the
+required behavior and local evaluation commands. A frontend is optional and only
+considered after backend requirements are sound.
 
-**Submission still pending:** Complete/test required backend behavior; make these
-documents match actual code; verify setup/run/seed/check instructions from a
-clean checkout; retain meaningful commits; and share a public or access-granted
+**Submission still pending:** Complete the final requirements audit, review and
+commit the remaining changes, and share a public or access-granted
 repository containing source, tests, API documentation, run instructions, and this
 decisions document. No hosted repository or completed submission is claimed here.
 
@@ -433,8 +447,9 @@ I used Codex to scaffold the project tooling, Express app, and health test; draf
 the design/API documentation; and implement the domain types, validation, money
 helpers, seeded catalog, cart/checkout/order services and routes, the shared
 mutex, checkout retry handling, coupon configuration/generation/redemption,
-administrative reporting, and focused tests. I also used it to run checks, including real HTTP requests and
-service/domain tests.
+administrative reporting, and focused tests. I also used it for the API/operational
+documentation review, executable API example, and parser error regression fix,
+and to run real HTTP requests and service/domain checks.
 Sandbox restrictions required permitted reruns of dependency installation and
 local HTTP tests. The current tests cover single-process stock, retries, and
 coupon/report behavior; they do not establish multi-instance coordination.

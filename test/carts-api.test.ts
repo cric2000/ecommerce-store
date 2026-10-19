@@ -1,8 +1,9 @@
 import { once } from 'node:events';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterEach, beforeEach, expect, test } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { createApp } from '../src/app.js';
+import { CartService } from '../src/services/carts.js';
 
 let server: Server;
 let baseUrl: string;
@@ -135,6 +136,33 @@ test('the JSON parser body limit returns a structured 413 response', async () =>
   const response = await jsonRequest('POST', '/carts', { padding: 'x'.repeat(110000) });
   expect(response.status).toBe(413);
   expect(await response.json()).toMatchObject({ error: { code: 'PAYLOAD_TOO_LARGE' } });
+});
+
+test.each<Record<string, string>>([
+  { 'Content-Type': 'application/json; charset=iso-8859-1' },
+  { 'Content-Type': 'application/json', 'Content-Encoding': 'compress' },
+])('unsupported JSON transport settings return 415: %j', async (headers) => {
+  const response = await fetch(`${baseUrl}/carts`, {
+    method: 'POST', headers, body: '{}',
+  });
+  expect(response.status).toBe(415);
+  expect(await response.json()).toMatchObject({ error: { code: 'UNSUPPORTED_MEDIA_TYPE' } });
+  await createCart();
+});
+
+test('an unexpected service failure returns a generic 500 without exposing exception details', async () => {
+  const failure = vi.spyOn(CartService.prototype, 'createCart')
+    .mockRejectedValueOnce(new Error('private service failure details'));
+  try {
+    const response = await jsonRequest('POST', '/carts', {});
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: { code: 'INTERNAL_ERROR', message: 'Unexpected server error' },
+    });
+    await createCart();
+  } finally {
+    failure.mockRestore();
+  }
 });
 
 test('unknown paths and unsupported methods return JSON 404 responses', async () => {

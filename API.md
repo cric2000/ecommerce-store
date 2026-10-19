@@ -14,6 +14,8 @@ endpoint statuses below and [DECISIONS.md](DECISIONS.md) for the design choices.
   where explicitly stated otherwise. Body-bearing endpoints require a JSON object,
   including `{}` when no properties are needed. For endpoints documented with no
   body, clients should omit it. No query parameters are defined.
+- Use UTF-8 JSON without compression for the simplest client setup. Unsupported
+  charsets or `Content-Encoding` values return 415 `UNSUPPORTED_MEDIA_TYPE`.
 - JSON bodies are limited to 100 KiB by the Express parser. Larger bodies receive
   413 `PAYLOAD_TOO_LARGE`. Empty bodies on JSON routes receive 400 `INVALID_REQUEST`;
   send `{}` when an empty object is required.
@@ -197,15 +199,19 @@ generic message without exception details.
 | 409 | `COUPON_ALREADY_REDEEMED` | Coupon already belongs to another successful order |
 | 409 | `NO_ELIGIBLE_MILESTONE` | No reached, unrewarded milestone is available |
 | 413 | `PAYLOAD_TOO_LARGE` | JSON request body exceeds 100 KiB |
-| 415 | `UNSUPPORTED_MEDIA_TYPE` | Body-bearing route is not sent as JSON |
+| 415 | `UNSUPPORTED_MEDIA_TYPE` | Body-bearing route is not JSON, or uses an unsupported charset/content encoding |
 | 422 | `AMOUNT_OUT_OF_RANGE` | Computed monetary value or report quantity aggregate cannot be represented safely |
 | 500 | `INTERNAL_ERROR` | Unexpected server failure |
 
 Malformed JSON/shape, media-type, range, and unexpected errors apply wherever
 relevant in addition to the important endpoint-specific errors listed below.
 Implemented routes normalize domain failures, malformed JSON, oversized bodies,
-and unknown routes into this envelope, including coupon generation/redemption
-failures and unsafe report aggregates.
+unsupported media/charset/encoding, and unknown routes into this envelope,
+including coupon generation/redemption failures and unsafe report aggregates.
+
+A runnable example covering every endpoint is in
+[examples/checkout.mjs](examples/checkout.mjs); setup and expected results are in
+[README.md](README.md#run-the-api-example).
 
 ## GET /health
 

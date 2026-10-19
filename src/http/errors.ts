@@ -37,6 +37,13 @@ export const errorHandler: ErrorRequestHandler = (error: unknown, _request, resp
     failure = new DomainError('INVALID_JSON', 'Request body is not valid JSON');
   } else if (error instanceof Error && 'type' in error && error.type === 'entity.too.large') {
     failure = new DomainError('PAYLOAD_TOO_LARGE', 'JSON body exceeds the 100 KiB limit');
+  } else if (
+    error instanceof Error && 'type' in error &&
+    (error.type === 'charset.unsupported' || error.type === 'encoding.unsupported')
+  ) {
+    failure = new DomainError(
+      'UNSUPPORTED_MEDIA_TYPE', 'JSON body uses an unsupported charset or content encoding',
+    );
   } else {
     failure = new DomainError('INTERNAL_ERROR', 'Unexpected server error');
   }

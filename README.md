@@ -10,7 +10,9 @@ administrative reporting are implemented.
 
 ## Requirements and install
 
-Use Node.js 24 or newer and npm. No credentials or external services are required.
+Use Node.js 24 or newer and npm. Run these commands from the repository root.
+No credentials, database, or external application services are required;
+`npm ci` installs the locked dependencies from the public npm registry.
 
 ```sh
 npm ci
@@ -25,6 +27,8 @@ npm run dev
 ```
 
 The default port is 3000. Override it with `PORT=3001 npm run dev`.
+Set environment variables in the shell; `.env` files are not loaded automatically.
+Stop the server with Ctrl+C.
 
 To compile and run the JavaScript build:
 
@@ -45,8 +49,8 @@ curl -i http://localhost:3000/health
 
 Five products are seeded automatically when an app/store starts. No separate
 seed command is needed. All data is in memory: restarting the process restores
-the seed catalog and clears carts/orders/coupons/keys. No private service or credentials are
-used.
+the seed catalog and clears carts/orders/coupons/keys. Development reloads also
+reset this state.
 
 | Product ID | Name | Unit price (paise) | Inventory |
 | --- | --- | --- | --- |
@@ -155,14 +159,46 @@ npm run typecheck
 npm run build
 ```
 
-`npm run test:watch` runs Vitest in watch mode. The health test starts an HTTP
-server on an available loopback port and closes it after the test.
+`npm run test:watch` runs Vitest in watch mode. HTTP tests start their own servers
+on available loopback ports and close them afterward; do not start the app first.
+The environment must permit binding local ports. Service/domain tests need no
+server, database, or credentials. CI and request logging are deferred.
+
+## Run the API example
+
+[examples/checkout.mjs](examples/checkout.mjs) exercises all documented endpoints
+using Node's built-in HTTP client and assertions. It creates six orders, so use a
+fresh server with the default seed and these reward settings. Stop any existing
+server first, then run:
+
+```sh
+COUPON_INTERVAL=5 DISCOUNT_PERCENT=10 npm run dev
+```
+
+In another terminal at the repository root:
+
+```sh
+node examples/checkout.mjs
+```
+
+For another port, pass the base URL, for example
+`node examples/checkout.mjs http://localhost:3001`.
+The same example works against `npm start` after building, with the same settings.
+
+The example adds, updates, removes, and reads cart items; purchases five notebooks;
+generates a coupon for milestone 5; buys two pens with 10% off; retries that
+checkout with the same key; retrieves the saved order; and checks repeated reports
+and remaining stock. It checks success statuses and cart/order Location headers.
+The final report must contain six orders, gross revenue **67500**, discounts
+**500**, net revenue **67000** paise, and one generated/redeemed coupon.
+It prints the report and exits unsuccessfully on an unexpected response. If it
+fails after making purchases, restart the server before trying again. It changes
+only the running in-memory store, which is cleared on restart.
 
 ## Current scope
 
-Tasks 1–8 provide project tooling, app/server entry points, the health endpoint,
-the planned API contract/design documentation, domain types, shared validation
-and errors, and exact integer-paise money helpers with focused tests.
+The backend provides the API contract above, shared validation and errors, exact
+integer-paise arithmetic, and focused domain/service/HTTP tests.
 
 Domain code lives in `src/domain/`: `types.ts` defines stored records and response
 shapes, `validation.ts` rejects invalid quantities/percentages/paise, `errors.ts`
@@ -171,20 +207,21 @@ with `bigint` intermediates and safe numeric outputs. Rupee conversion takes a
 decimal string rather than a floating-point number; formatted rupees are strings.
 
 `src/store/` holds seed data and per-app in-memory state. `src/services/` contains
-catalog/cart/checkout/order/coupon/report behavior, `src/routes/` translates HTTP requests and
-responses, and `src/http/` parses JSON and formats errors. Each cart write validates its proposed
-view/totals before replacing store state. Service and HTTP tests cover cart
-lifecycle, validation failures, stock checks, current-price/availability views,
+catalog/cart/checkout/order/coupon/report behavior, `src/routes/` translates HTTP
+requests and responses, and `src/http/` parses JSON and formats errors. Each cart
+write validates its proposed view/totals before replacing store state. Tests cover
+cart lifecycle, validation failures, stock checks, current-price/availability views,
 checkout failures, inventory deductions, and snapshots after catalog changes.
 
 Every cart mutation, checkout, and coupon generation uses one FIFO mutex owned
-by the store. State
-is captured after acquiring the lock, and changes are prepared before publication.
+by the store. State is captured after acquiring the lock, and changes are prepared
+before publication.
 Service and HTTP tests exercise last-item contention, matching retries, conflicting
 keys, waiting edits, invalid headers, and recovery after a failed attempt.
 
 The lock coordinates only services sharing that in-memory store in one process;
 it does not coordinate independent instances or survive restart. Keys have no
 expiry while the process runs. Reporting reads committed state without taking the
-mutation lock or writing counters. Final documentation review and the assignment
-audit remain pending. All state is lost on restart. No frontend is included.
+mutation lock or writing counters. API and operational documentation review is
+complete; the final assignment audit remains pending. All state is lost on restart.
+No frontend is included.
