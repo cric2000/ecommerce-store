@@ -8,6 +8,7 @@ import { productRoutes } from './routes/products.js';
 import { orderRoutes } from './routes/orders.js';
 import { couponRoutes } from './routes/coupons.js';
 import { reportRoutes } from './routes/reports.js';
+import { docsRoutes } from './routes/docs.js';
 import { CartService } from './services/carts.js';
 import { CatalogService } from './services/catalog.js';
 import { OrderService } from './services/orders.js';
@@ -18,6 +19,7 @@ import { InMemoryStore } from './store/memory.js';
 export function createApp(store = new InMemoryStore(undefined, readRewardConfig())): express.Express {
   const app = express();
   app.use(express.static(fileURLToPath(new URL('../public/', import.meta.url))));
+  app.use('/docs', docsRoutes());
 
   app.get('/health', (_request, response) => {
     response.status(200).json({ status: 'ok' });

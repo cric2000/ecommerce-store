@@ -456,6 +456,15 @@ page memory. Reloading clears browser state; no saved-cart recovery, history,
 or browser persistence is implemented. Admin operations remain unauthenticated.
 README.md documents startup, the reward walkthrough, and these limits.
 
+**Interactive API documentation:** I added Swagger UI at `/docs` and an OpenAPI
+3.0 description at `/docs/openapi.json`. The specification covers the existing
+11 operations, required JSON objects, checkout key, response shapes, and errors.
+Swagger UI uses locally installed assets and sends requests to the same server;
+it needs no CDN, credentials, or external validation service. Its write requests
+change the same in-memory store as the demo. The specification is maintained
+alongside API.md; tests validate its structure/references, compare operation
+coverage with the written endpoint index, and exercise request examples/retries.
+
 **Submission still pending:** Review and commit the remaining changes, and share
 a public or access-granted repository containing source, tests, API documentation,
 run instructions, and this decisions document. No hosted repository or completed
@@ -491,7 +500,8 @@ mutex, checkout retry handling, coupon configuration/generation/redemption,
 administrative reporting, and focused tests. I also used it for the API/operational
 documentation review, executable API example, and parser error regression fix,
 the final requirement audit and decoding-error fix, and the small browser demo
-and its client/HTTP tests. I also used it to run real HTTP requests, browser
+and its client/HTTP tests, plus Swagger UI, the OpenAPI contract, and documentation
+checks. I also used it to run real HTTP requests, browser
 walkthroughs, and service/domain checks.
 Sandbox restrictions required permitted reruns of dependency installation and
 local HTTP tests. The current tests cover single-process stock, retries, and

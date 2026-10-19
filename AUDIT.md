@@ -83,6 +83,26 @@ after the fix. The sandbox initially blocked loopback HTTP tests; permitted
 reruns passed. The earlier operational review also verified development startup
 and the same walkthrough with `npm run dev`.
 
+## Swagger documentation verification
+
+I added interactive documentation at `/docs` and `/docs/`, with the OpenAPI
+document at `/docs/openapi.json`. The specification describes all 11 existing
+operations and uses the current origin for requests. Swagger UI assets are served
+from the installed package; no CDN or external validator is used by the page.
+
+`npm test` passed all 231 tests across 17 files. The new documentation checks
+validate the served OpenAPI structure and references, compare endpoint coverage
+with API.md, verify local asset serving, and execute documented request examples,
+including missing-key rejection and matching checkout replay. `npm run typecheck`,
+`npm run build`, and `git diff --check` passed. The initial sandboxed HTTP run
+could not bind loopback ports; the permitted rerun passed.
+
+Using `PORT=3115 COUPON_INTERVAL=1 DISCOUNT_PERCENT=10 npm start`, I verified the
+Swagger page in the browser and executed cart creation, item addition, checkout,
+and matching checkout replay through **Try it out**. The retry returned the same
+order and Location. No browser console warnings or errors were reported. These
+requests changed only that verification server's in-memory store.
+
 ## Browser demo verification
 
 After adding and refining the optional frontend, I ran `npm test`: all 228 tests passed across

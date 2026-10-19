@@ -7,6 +7,10 @@ endpoint statuses below and [DECISIONS.md](DECISIONS.md) for the design choices.
 
 ## Common conventions
 
+- Interactive Swagger UI is served at `GET /docs` (also `/docs/`), with the
+  OpenAPI 3.0 document at `GET /docs/openapi.json`. It describes the 11 JSON
+  operations below. **Try it out** executes against the current server and
+  shares its live in-memory state with the browser demo. UI assets are local.
 - The optional browser demo is at `GET /` (HTML), with `/app.js`, `/client.js`, and
   `/styles.css` static assets. The JSON API operations are listed below; the demo
   calls them on the same origin. See [README.md](README.md#browser-demo).

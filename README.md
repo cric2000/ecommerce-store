@@ -9,7 +9,8 @@ The final backend requirement comparison and verification evidence are in
 [AUDIT.md](AUDIT.md).
 Health, catalog listing, cart lifecycle, checkout with optional coupons, order
 retrieval, shared locking, key-based retries, coupon generation, and read-only
-administrative reporting are implemented. The browser demo is served at `/`.
+administrative reporting are implemented. The browser demo is served at `/`,
+and interactive Swagger API documentation is at `/docs`.
 
 ## Requirements and install
 
@@ -39,6 +40,28 @@ To compile and run the JavaScript build:
 npm run build
 npm start
 ```
+
+## Interactive API documentation
+
+After starting the server, open [Swagger UI](http://localhost:3000/docs).
+Use the configured port if different. `/docs` and `/docs/` list all 11 API
+operations, grouped by purpose, with request examples, response schemas,
+statuses, and errors. The OpenAPI 3.0 specification is at
+[/docs/openapi.json](http://localhost:3000/docs/openapi.json) for API tooling.
+Swagger UI assets are installed locally through npm; no CDN or external
+validation service is needed. Both development and compiled startup serve it.
+
+Expand an endpoint, choose **Try it out**, edit the parameters/body, and select
+**Execute**. Start with `GET /products`, create a cart with `POST /carts` and
+body `{}`, then use its returned ID to add an item and check out. Checkout
+requires an `Idempotency-Key`; choose a new value per purchase and reuse that
+same value and body when retrying an uncertain result. For a coupon checkout,
+select the **With a generated coupon** request example and replace its code.
+
+These requests use the same running in-memory store as the browser demo.
+Writes create real carts/orders and change stock/coupons in that process.
+Administrative operations have no authentication. Restarting resets all data;
+no real money is charged. The detailed contract remains in [API.md](API.md).
 
 ## Browser demo
 
