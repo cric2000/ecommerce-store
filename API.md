@@ -16,6 +16,8 @@ endpoint statuses below and [DECISIONS.md](DECISIONS.md) for the design choices.
   body, clients should omit it. No query parameters are defined.
 - Use UTF-8 JSON without compression for the simplest client setup. Unsupported
   charsets or `Content-Encoding` values return 415 `UNSUPPORTED_MEDIA_TYPE`.
+  Undecodable route parameters and damaged compressed bodies return
+  400 `INVALID_REQUEST`.
 - JSON bodies are limited to 100 KiB by the Express parser. Larger bodies receive
   413 `PAYLOAD_TOO_LARGE`. Empty bodies on JSON routes receive 400 `INVALID_REQUEST`;
   send `{}` when an empty object is required.
@@ -183,7 +185,7 @@ generic message without exception details.
 | HTTP status | Code | Meaning |
 | --- | --- | --- |
 | 400 | `INVALID_JSON` | Malformed JSON |
-| 400 | `INVALID_REQUEST` | Wrong/missing object body, unknown fields, or invalid property type/value other than quantity |
+| 400 | `INVALID_REQUEST` | Undecodable URL/body, wrong/missing object body, unknown fields, or invalid property type/value other than quantity |
 | 400 | `INVALID_QUANTITY` | Quantity is missing, not a positive safe integer, or is a numeric string |
 | 400 | `INVALID_IDEMPOTENCY_KEY` | Checkout key missing, repeated, or outside the documented format |
 | 404 | `PRODUCT_NOT_FOUND` | Referenced product absent from catalog |
@@ -206,8 +208,9 @@ generic message without exception details.
 Malformed JSON/shape, media-type, range, and unexpected errors apply wherever
 relevant in addition to the important endpoint-specific errors listed below.
 Implemented routes normalize domain failures, malformed JSON, oversized bodies,
-unsupported media/charset/encoding, and unknown routes into this envelope,
-including coupon generation/redemption failures and unsafe report aggregates.
+unsupported media/charset/encoding, undecodable requests, and unknown routes into
+this envelope, including coupon generation/redemption failures and unsafe report
+aggregates.
 
 A runnable example covering every endpoint is in
 [examples/checkout.mjs](examples/checkout.mjs); setup and expected results are in

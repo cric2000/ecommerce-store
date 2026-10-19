@@ -4,6 +4,8 @@ Backend take-home assignment using Node.js, TypeScript, Express, and Vitest.
 The complete requirements are preserved in [ASSIGNMENT.md](ASSIGNMENT.md).
 The HTTP contract is in [API.md](API.md), and the design choices,
 invariants, scope, and actual AI use are in [DECISIONS.md](DECISIONS.md).
+The final backend requirement comparison and verification evidence are in
+[AUDIT.md](AUDIT.md).
 Health, catalog listing, cart lifecycle, checkout with optional coupons, order
 retrieval, shared locking, key-based retries, coupon generation, and read-only
 administrative reporting are implemented.
@@ -222,6 +224,6 @@ keys, waiting edits, invalid headers, and recovery after a failed attempt.
 The lock coordinates only services sharing that in-memory store in one process;
 it does not coordinate independent instances or survive restart. Keys have no
 expiry while the process runs. Reporting reads committed state without taking the
-mutation lock or writing counters. API and operational documentation review is
-complete; the final assignment audit remains pending. All state is lost on restart.
-No frontend is included.
+mutation lock or writing counters. API/operational review and the final backend
+audit are complete; review, commit, and submission handoff remain pending.
+All state is lost on restart. No frontend is included.

@@ -44,6 +44,9 @@ export const errorHandler: ErrorRequestHandler = (error: unknown, _request, resp
     failure = new DomainError(
       'UNSUPPORTED_MEDIA_TYPE', 'JSON body uses an unsupported charset or content encoding',
     );
+  } else if (error instanceof Error && 'status' in error && error.status === 400) {
+    // Express also reports URL decoding and compressed-body failures as bad requests.
+    failure = new DomainError('INVALID_REQUEST', 'Request URL or body could not be decoded');
   } else {
     failure = new DomainError('INTERNAL_ERROR', 'Unexpected server error');
   }

@@ -150,6 +150,24 @@ test.each<Record<string, string>>([
   await createCart();
 });
 
+test('a malformed URL escape returns a client error and leaves the server usable', async () => {
+  const response = await fetch(`${baseUrl}/carts/%E0%A4%A`);
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ error: { code: 'INVALID_REQUEST' } });
+  await createCart();
+});
+
+test('a damaged gzip body returns a client error instead of an internal failure', async () => {
+  const response = await fetch(`${baseUrl}/carts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' },
+    body: 'not a gzip stream',
+  });
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ error: { code: 'INVALID_REQUEST' } });
+  await createCart();
+});
+
 test('an unexpected service failure returns a generic 500 without exposing exception details', async () => {
   const failure = vi.spyOn(CartService.prototype, 'createCart')
     .mockRejectedValueOnce(new Error('private service failure details'));

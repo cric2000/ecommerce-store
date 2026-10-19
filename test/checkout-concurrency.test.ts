@@ -59,6 +59,24 @@ test('simultaneous requests cannot bind one key to different carts', async () =>
   expect(store.state.products.get('product-1')!.availableInventory).toBe(49);
 });
 
+test('different keys competing for the same cart create one order and bind only the winning key', async () => {
+  const { store, carts, orders } = setup();
+  const cart = await carts.createCart({});
+  await carts.addItem(cart.id, { productId: 'product-1', quantity: 1 });
+  const keys = ['first-attempt', 'second-attempt'];
+  const results = await Promise.allSettled(keys.map((key) => orders.checkout(cart.id, {}, key)));
+  expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+  expect(results.find((result) => result.status === 'rejected'))
+    .toMatchObject({ reason: { code: 'CART_ALREADY_CHECKED_OUT' } });
+  expect(store.state.orders.size).toBe(1);
+  expect(store.state.checkoutKeys.size).toBe(1);
+  for (const [index, result] of results.entries()) {
+    expect(store.state.checkoutKeys.has(keys[index])).toBe(result.status === 'fulfilled');
+  }
+  expect(store.state.products.get('product-1')!.availableInventory).toBe(49);
+  expect(carts.getCart(cart.id)).toMatchObject({ status: 'checked_out' });
+});
+
 test('a failed attempt does not bind its key and the fixed cart can retry', async () => {
   const { store, carts, orders } = setup();
   const cart = await carts.createCart({});

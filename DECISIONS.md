@@ -7,8 +7,8 @@ Project tooling, application/server entry points, `GET /health`, domain types,
 quantity/money validation, exact money helpers, seeded catalog, cart lifecycle,
 JSON errors, checkout with optional coupons, order retrieval, coupon generation,
 shared mutation locking, idempotent replay, and read-only reporting are
-implemented. API/operational documentation review is complete; the final
-assignment audit remains pending.
+implemented. API/operational review and the final backend audit are complete.
+The requirement comparison and verification evidence are in [AUDIT.md](AUDIT.md).
 The decisions below describe the implementation and deferred concerns. See
 [API.md](API.md) for the HTTP contract.
 
@@ -394,18 +394,29 @@ HTTP regression checks distinguish unsupported JSON charsets/content encodings
 failures (500). Unexpected exceptions receive a generic message without private
 details. The parser review exposed unsupported charset/encoding errors becoming
 500 responses; these now use the existing `UNSUPPORTED_MEDIA_TYPE` code.
+The final audit also exposed malformed URL escapes and damaged compressed bodies
+becoming 500 responses. The handler now preserves Express's 400 classification as
+`INVALID_REQUEST` after the more specific mappings; its generic message contains
+no parser internals. HTTP regression tests reproduce both cases and verify that
+normal requests still work afterward. Same-cart checkouts with different keys
+also have an explicit contention test, including which key becomes bound.
 
 **Operational verification:** I verified a fresh source copy without existing
 `node_modules` or `dist`, using Node.js 24.21.0 and npm 11.19.0. Locked installation
-with `npm ci` (using a writable npm package cache), all 211 tests,
-`npm run typecheck`, and `npm run build` passed. The executable example passed against
-both `npm start` and `npm run dev`, using port 3109 and explicit interval 5 /
-discount 10 settings. Restarting between runs restored the seed and empty state.
-The example checked all endpoints, six orders, gross revenue 67500 paise,
-discounts 500, net revenue 67000, and one redeemed coupon.
+with `npm ci` (using a writable npm package cache), all 214 tests,
+`npm run typecheck`, and `npm run build` passed. The executable example passed
+against the compiled server using `npm start`, port 3110, interval 5, and discount
+10. It checked all endpoints, six orders, gross revenue 67500 paise, discounts
+500, net revenue 67000, and one redeemed coupon. The earlier operational review
+also verified the example against `npm run dev` and confirmed that restarting
+restores the seed and empty state. [AUDIT.md](AUDIT.md#verification) records the
+final commands and results.
 
-**Required and pending:** The final assignment audit. No multi-instance
-coordination or completed submission is claimed.
+**Final backend audit:** I compared every assignment line with source, tests, and
+documentation. [AUDIT.md](AUDIT.md) records the evidence, concrete fixes, executed
+checks, and remaining handoff items. No additional missing required commerce
+behavior was found within the single-process model. No multi-instance coordination
+or completed submission is claimed.
 
 **Intentionally deferred:** Persistence/restart recovery, multi-instance
 coordination, authentication/authorization, real payments, reservations, coupon
@@ -415,10 +426,10 @@ Request logging and CI are also deferred to keep this service focused on the
 required behavior and local evaluation commands. A frontend is optional and only
 considered after backend requirements are sound.
 
-**Submission still pending:** Complete the final requirements audit, review and
-commit the remaining changes, and share a public or access-granted
-repository containing source, tests, API documentation, run instructions, and this
-decisions document. No hosted repository or completed submission is claimed here.
+**Submission still pending:** Review and commit the remaining changes, and share
+a public or access-granted repository containing source, tests, API documentation,
+run instructions, and this decisions document. No hosted repository or completed
+submission is claimed here.
 
 ## Evolution to multiple instances and production scale
 
@@ -449,7 +460,8 @@ helpers, seeded catalog, cart/checkout/order services and routes, the shared
 mutex, checkout retry handling, coupon configuration/generation/redemption,
 administrative reporting, and focused tests. I also used it for the API/operational
 documentation review, executable API example, and parser error regression fix,
-and to run real HTTP requests and service/domain checks.
+the final requirement audit and decoding-error fix, and to run real HTTP requests
+and service/domain checks.
 Sandbox restrictions required permitted reruns of dependency installation and
 local HTTP tests. The current tests cover single-process stock, retries, and
 coupon/report behavior; they do not establish multi-instance coordination.
