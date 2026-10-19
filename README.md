@@ -14,8 +14,8 @@ and interactive Swagger API documentation is at `/docs`.
 
 ## Requirements and install
 
-Use Node.js 24 or newer and npm. Run these commands from the repository root.
-No credentials, database, or external application services are required;
+Use Node.js 24 and npm. Run these commands from the repository root.
+The default local mode needs no credentials, database, or external application services;
 `npm ci` installs the locked dependencies from the public npm registry.
 
 ```sh
@@ -41,6 +41,78 @@ npm run build
 npm start
 ```
 
+## Storage modes
+
+Without `DATABASE_URL` (or `POSTGRES_URL`), the app uses the original in-memory
+store. Restarting resets its products, carts, orders, coupons, and checkout keys.
+
+With a PostgreSQL URL, every instance uses the same durable store. Writes lock
+one store row inside a database transaction and send the HTTP success response
+only after commit. Inventory, orders, cart closure, coupon redemption, and retry
+keys commit together across instances. Reads see a complete committed snapshot.
+Restarting or deploying a new version does not reset this mode.
+
+| Setting | Purpose | Default |
+| --- | --- | --- |
+| `DATABASE_URL` | Pooled PostgreSQL connection URL; `POSTGRES_URL` is a fallback | Unset: local memory mode |
+| `STORE_NAMESPACE` | Independent store within the database | `ecommerce` |
+| `COUPON_INTERVAL` | Successful orders per reward milestone when a store is initialized | `5` |
+| `DISCOUNT_PERCENT` | Coupon percentage when a store is initialized | `10` |
+
+The database table and initial seed are created automatically before the first
+API operation. Each PostgreSQL namespace retains its saved reward configuration;
+later restarts do not overwrite its inventory or settings. Changing those rules
+for an existing namespace requires a deliberate data migration. A new namespace
+starts a separate empty store with the current seed/settings.
+
+To use an environment file locally, copy [.env.example](.env.example) to `.env`,
+set the connection URL, build, and run with Node's explicit environment-file flag:
+
+```sh
+cp .env.example .env
+npm run build
+node --env-file=.env dist/server.js
+```
+
+The database URL is a credential. `.env` files and `.vercel/` are ignored by Git.
+
+## Vercel deployment
+
+Live demo: [ecommerce-store-seven-opal.vercel.app](https://ecommerce-store-seven-opal.vercel.app/).
+Interactive API: [Swagger UI](https://ecommerce-store-seven-opal.vercel.app/docs).
+
+The Vercel project `ecommerce-store` is connected to
+[cric2000/ecommerce-store](https://github.com/cric2000/ecommerce-store), with
+`main` as its production branch. The project uses the Hobby plan and the
+`ecommerce-store-db` Neon Free database. The integration supplies the production
+`DATABASE_URL`; database and function region are both `iad1`.
+
+Push a committed change to `main` to deploy through Vercel's native GitHub
+integration:
+
+```sh
+git push origin main
+```
+
+[vercel.json](vercel.json) selects Express, installs locked dependencies, runs the
+default tests, checks TypeScript, builds the app, and includes the local Swagger
+assets. Automatic Git
+deployments are enabled for `main` only. No GitHub Actions deployment token is
+needed. View build/runtime results in the Vercel project's Deployments tab.
+
+The `app.mjs` entry point loads the compiled Express app without starting a
+listener; local startup still uses `src/server.ts`. Vercel serves `public/`
+through its CDN and runs the
+API/Swagger routes in the function. A database URL is required on Vercel so a
+deployment cannot silently fall back to per-instance memory.
+
+Only production is connected to the database. To add preview deployments later,
+use a separate database/branch and namespace rather than production data.
+Authentication and real payments are outside this demo; the admin routes remain
+public. This is a small shared-store design: writes serialize on one PostgreSQL
+row and serialize the full snapshot. A larger service should use normalized
+tables and narrower transactional locks, as described in [DECISIONS.md](DECISIONS.md).
+
 ## Interactive API documentation
 
 After starting the server, open [Swagger UI](http://localhost:3000/docs).
@@ -58,10 +130,11 @@ requires an `Idempotency-Key`; choose a new value per purchase and reuse that
 same value and body when retrying an uncertain result. For a coupon checkout,
 select the **With a generated coupon** request example and replace its code.
 
-These requests use the same running in-memory store as the browser demo.
+These requests use the same store as the browser demo.
 Writes create real carts/orders and change stock/coupons in that process.
-Administrative operations have no authentication. Restarting resets all data;
-no real money is charged. The detailed contract remains in [API.md](API.md).
+Administrative operations have no authentication. Restarting resets local memory
+mode; PostgreSQL mode preserves data. No real money is charged. The detailed
+contract remains in [API.md](API.md).
 
 ## Browser demo
 
@@ -106,15 +179,16 @@ cart changes stay disabled until the result is confirmed.
 Cart/receipt/latest-coupon selection and the retry key live in page memory.
 Keep the page open while retrying an uncertain checkout. Reloading clears that
 browser state while the running server retains its records; this small demo has
-no saved-cart recovery or order history screen. Restarting the server resets all
-data. Development reloads also reset server data, so reload the page afterward.
+no saved-cart recovery or order history screen. In local memory mode, restarting
+or development reloads reset server data, so reload the page afterward. PostgreSQL
+mode preserves server records, but a page reload still clears the browser's
+selected cart and receipt.
 
 ## Seeded catalog
 
 Five products are seeded automatically when an app/store starts. No separate
-seed command is needed. All data is in memory: restarting the process restores
-the seed catalog and clears carts/orders/coupons/keys. Development reloads also
-reset this state.
+seed command is needed. Memory mode reseeds on restart/development reload;
+PostgreSQL seeds each new namespace once and preserves subsequent changes.
 
 | Product ID | Name | Unit price (paise) | Inventory |
 | --- | --- | --- | --- |
@@ -128,7 +202,8 @@ reset this state.
 
 Startup settings are `COUPON_INTERVAL` (`n`, default 5, positive safe integer)
 and `DISCOUNT_PERCENT` (`x`, default 10, integer 1–100). Values must use decimal
-digits only. Invalid settings fail startup; settings stay fixed until restart.
+digits only. Invalid settings fail startup. Memory mode loads them at startup;
+PostgreSQL saves them when initializing a namespace and retains them afterward.
 For example:
 
 ```sh
@@ -330,8 +405,8 @@ and `redeemedOrderId: null`. Use the returned code in a later checkout.
 No eligible milestone returns **409** `NO_ELIGIBLE_MILESTONE`. Generation is
 explicit and limited to one coupon per milestone; there is no automatic
 generation during checkout. This route is not idempotent: retrying may generate
-the next outstanding milestone. Settings come from startup configuration, not
-the request body.
+the next outstanding milestone. Settings come from the store's saved/startup
+configuration, not the request body.
 
 ### GET /admin/report
 
@@ -347,8 +422,8 @@ Returns **200** with `purchasedQuantityByProduct`, `grossRevenuePaise`,
 grouped/sorted by product ID. An empty store returns empty quantities and zero
 totals/counts.
 
-The report reads one committed state synchronously, using saved orders and coupon
-records. Current catalog prices, active carts, failed checkouts, and successful
+The report uses one committed snapshot of saved orders and coupon records.
+Current catalog prices, active carts, failed checkouts, and successful
 retries do not add revenue. Reading the report does not generate eligible coupons
 or mutate state. A quantity or monetary aggregate outside the safe-integer range
 returns 422 `AMOUNT_OUT_OF_RANGE` instead of an imprecise number.
@@ -380,16 +455,40 @@ node --check public/client.js
 `npm run test:watch` runs Vitest in watch mode. HTTP tests start their own servers
 on available loopback ports and close them afterward; do not start the app first.
 The environment must permit binding local ports. Service/domain tests need no
-server, database, or credentials. CI and request logging are deferred.
+server, database, or credentials. A separate CI workflow and request logging are deferred;
+Vercel runs the default suite, typecheck, and build before each deployment.
 `npm run typecheck` checks TypeScript source/tests; the browser JavaScript has
 client behavior tests, syntax checks above, and manual browser verification.
+
+Nine PostgreSQL integration tests are skipped unless `TEST_DATABASE_URL` is
+configured. Use a dedicated test database; these tests create and remove isolated
+namespaces and temporarily add a constraint to exercise SQL rollback. For example,
+with Docker:
+
+```sh
+docker run --name ecommerce-store-postgres --rm -d \
+  -e POSTGRES_PASSWORD=ecommerce-local-test -e POSTGRES_DB=ecommerce_test \
+  -p 127.0.0.1:55432:5432 postgres:18-alpine
+docker exec ecommerce-store-postgres pg_isready -U postgres -d ecommerce_test
+```
+
+Once PostgreSQL reports that it is accepting connections, run:
+
+```sh
+TEST_DATABASE_URL='postgresql://postgres:ecommerce-local-test@127.0.0.1:55432/ecommerce_test' npm test
+docker stop ecommerce-store-postgres
+```
+
+These tests cover independent app instances, last-item contention, matching and
+conflicting retries, duplicate checkout, coupon contention, rollback, durable
+receipts, namespace isolation, and reports that do not rewrite saved state.
 
 ## Run the API example
 
 [examples/checkout.mjs](examples/checkout.mjs) exercises all documented endpoints
 using Node's built-in HTTP client and assertions. It creates six orders, so use a
-fresh server with the default seed and these reward settings. Stop any existing
-server first, then run:
+fresh memory-mode server with the default seed and these reward settings. Stop any existing
+server first, leave `DATABASE_URL`/`POSTGRES_URL` unset, then run:
 
 ```sh
 COUPON_INTERVAL=5 DISCOUNT_PERCENT=10 npm run dev
@@ -412,8 +511,9 @@ and remaining stock. It checks success statuses and cart/order Location headers.
 The final report must contain six orders, gross revenue **67500**, discounts
 **500**, net revenue **67000** paise, and one generated/redeemed coupon.
 It prints the report and exits unsuccessfully on an unexpected response. If it
-fails after making purchases, restart the server before trying again. It changes
-only the running in-memory store, which is cleared on restart.
+fails after making purchases in memory mode, restart the server before trying
+again. For PostgreSQL, use a dedicated fresh namespace with the default settings;
+restarting does not clear its records. The example changes the selected store.
 
 ## Current scope
 
@@ -426,7 +526,8 @@ provides structured domain failures, and `money.ts` performs exact arithmetic
 with `bigint` intermediates and safe numeric outputs. Rupee conversion takes a
 decimal string rather than a floating-point number; formatted rupees are strings.
 
-`src/store/` holds seed data and per-app in-memory state. `src/services/` contains
+`src/store/` holds seed data, the local memory store, and the shared PostgreSQL
+adapter. `src/services/` contains
 catalog/cart/checkout/order/coupon/report behavior, `src/routes/` translates HTTP
 requests and responses, and `src/http/` parses JSON and formats errors. Each cart
 write validates its proposed view/totals before replacing store state. Tests cover
@@ -439,10 +540,12 @@ before publication.
 Service and HTTP tests exercise last-item contention, matching retries, conflicting
 keys, waiting edits, invalid headers, and recovery after a failed attempt.
 
-The lock coordinates only services sharing that in-memory store in one process;
-it does not coordinate independent instances or survive restart. Keys have no
-expiry while the process runs. Reporting reads committed state without taking the
-mutation lock or writing counters. API/operational review, the backend audit,
+The local lock coordinates only one memory store. PostgreSQL mode additionally
+locks the namespace row, prepares changes using the same services, and commits
+the complete snapshot before responding. It coordinates independent instances
+and preserves keys/orders across restarts. Keys have no expiry. Reporting reads
+committed state without taking the mutation lock or writing counters.
+API/operational review, the backend audit,
 and final acceptance verification are recorded in [AUDIT.md](AUDIT.md).
-All server state is lost on restart. The optional browser demo calls the same API;
+Only local memory state is lost on restart. The browser demo calls the same API;
 business rules remain in the backend.

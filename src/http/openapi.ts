@@ -77,7 +77,7 @@ export const openapi: OpenAPIV3.Document = {
     title: 'Checkout and rewards API', version: '0.1.0',
     description: [
       'Browse all 11 API operations and use **Try it out** to send requests to this running server.',
-      '**Requests change the same in-memory store used by the browser demo.** Restarting resets all data. No real payments occur.',
+      '**Requests change the same store used by the browser demo.** Local in-memory mode resets on restart; PostgreSQL mode preserves data across restarts and deployments. No real payments occur.',
       'Start with GET /products, POST /carts (send `{}`), add an item, then checkout using the returned cart ID and an Idempotency-Key.',
       'All money is in integer **INR paise** (100 paise = ₹1). Discounts use half-up rounding once on the subtotal.',
       'No authentication is implemented, including for administrative operations. IDs and coupon codes are case-sensitive. Unknown JSON properties are rejected; request bodies are limited to 100 KiB.',
@@ -218,7 +218,7 @@ export const openapi: OpenAPIV3.Document = {
     '/admin/coupons': {
       post: {
         operationId: 'generateCoupon', tags: ['Administration'], summary: 'Generate one eligible milestone coupon',
-        description: 'No authentication. Send `{}`. Generates the oldest reached, unrewarded milestone once. COUPON_INTERVAL (default 5) and DISCOUNT_PERCENT (default 10) are fixed at startup. There is no automatic generation during checkout. This endpoint is not idempotent: retrying may generate the next outstanding milestone.',
+        description: 'No authentication. Send `{}`. Generates the oldest reached, unrewarded milestone once. COUPON_INTERVAL (default 5) and DISCOUNT_PERCENT (default 10) initialize each store and remain fixed for its lifetime; an existing PostgreSQL namespace retains its saved settings. There is no automatic generation during checkout. This endpoint is not idempotent: retrying may generate the next outstanding milestone.',
         requestBody: emptyBody,
         responses: {
           '201': success('One available coupon created. No Location header or coupon GET endpoint.', ref('Coupon'), couponExample),

@@ -1,10 +1,11 @@
 import { Router } from 'express';
-import type { OrderService } from '../services/orders.js';
+import { OrderService } from '../services/orders.js';
+import type { StoreAccess } from '../store/access.js';
 
-export function orderRoutes(orders: OrderService): Router {
+export function orderRoutes(access: StoreAccess): Router {
   const router = Router();
-  router.get('/:orderId', (request, response) => {
-    response.json(orders.getOrder(request.params.orderId));
+  router.get('/:orderId', async (request, response) => {
+    response.json(await access.read((store) => new OrderService(store).getOrder(request.params.orderId)));
   });
   return router;
 }

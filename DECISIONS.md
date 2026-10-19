@@ -14,9 +14,9 @@ The requirement comparison and verification evidence are in [AUDIT.md](AUDIT.md)
 The decisions below describe the implementation and deferred concerns. See
 [API.md](API.md) for the HTTP contract.
 
-The design keeps a focused single-process service with routes, services, domain
-types, and an in-memory store. It prioritizes correctness, invariants, focused
-tests, and clean architecture over optional features.
+The design separates routes, services, domain types, and storage. Local mode
+uses an in-memory store; Vercel uses a shared PostgreSQL adapter. It prioritizes
+correctness, invariants, focused tests, and clean architecture over optional features.
 
 ## System invariants
 
@@ -110,6 +110,51 @@ current catalog data. Tests hold the lock across an explicit gate to prove that
 checkout and edits wait, and verify that checkout reads stock after acquiring it.
 Store state remains a trusted internal dependency, not an object exposed over HTTP.
 This coordinates one shared store in one process, not independent app instances.
+The PostgreSQL adapter below adds a database transaction around these same
+service operations when multiple app instances share a store.
+
+## Decision: Shared PostgreSQL snapshots for Vercel
+
+**Context:** Vercel can run multiple independent instances. A process-local cart,
+inventory count, coupon, or retry key cannot coordinate their requests or survive
+a cold start. The deployed demo needs the same checkout guarantees as local mode.
+
+**Options considered:** Deploy memory mode with unreliable cross-request state;
+host a single long-running server elsewhere; rewrite every service around
+normalized SQL tables; or persist the existing store snapshot in PostgreSQL.
+
+**Choice:** Keep the existing services and local memory mode. With a database URL,
+use `PostgresStoreAccess`: load the namespace snapshot, execute writes under
+`SELECT ... FOR UPDATE`, and update the whole snapshot inside one transaction.
+Only return the result after `COMMIT`. Failures roll back; matching checkout
+replays do not rewrite the snapshot. Read-only operations load one committed
+snapshot without taking the write lock. Routes await the storage boundary.
+
+Seed each namespace once with `INSERT ... ON CONFLICT DO NOTHING`. A transaction
+advisory lock serializes first-time schema creation across cold starts. Save
+reward configuration with the namespace, so existing data cannot be reseeded or
+silently use different milestone rules after a restart. Configure a new namespace
+for an independent store; changing existing rules requires an explicit migration.
+Use the Neon Free PostgreSQL integration, pooled connections, Vercel's pool
+lifecycle helper, and the same `iad1` region for functions and the database.
+Vercel requires a database URL; local evaluation without credentials stays available.
+
+**Why:** This preserves the tested business rules and atomic checkout boundary
+while adding durable coordination across instances. The native GitHub connection
+deploys `main` using repository-controlled build settings, without storing a
+deployment token in GitHub. The build runs default tests, typecheck, and compilation.
+
+**Consequences:** Every write serializes on one row and reads/writes the whole
+store, so throughput, snapshot size, and report cost are limited. Larger stores
+need normalized tables and narrower locks. Database/network failures return the generic 500
+envelope; an uncertain commit is recoverable with the original checkout key.
+Public admin routes and the absence of real payments remain deliberate scope
+choices. Preview deployments need isolated storage before being enabled.
+
+**Validation:** PostgreSQL integration tests use independent adapters and HTTP
+apps. They cover cold starts, retained receipts/configuration, stock and coupon
+contention, matching/conflicting keys, SQL rejection before HTTP success,
+rollback after prepared changes, namespace isolation, and read-only reports.
 
 ## Decision: Checkout keys bind successful requests
 
@@ -134,8 +179,8 @@ the catalog changes, and concurrent retries cannot both create orders.
 Failures create no binding/cache entry, so a client may fix the cart and retry
 with the same key. Cart contents are not part of the request fingerprint: before
 success, the request always acts on the cart's current contents. Successful keys
-remain until process restart; no expiry/cleanup is implemented. A restart loses
-keys and orders together. Clients cannot rely on durability across restarts.
+have no expiry/cleanup. Memory mode loses keys and orders together on restart;
+PostgreSQL commits both durably and preserves them across restarts/deployments.
 
 **Current identity:** A key record stores the validated cart ID, optional coupon
 code normalized to null when absent, and immutable order ID. Code matching is
@@ -175,6 +220,8 @@ different outstanding milestones, never the same milestone. This endpoint has
 no idempotency key: retrying after a lost response may issue the next outstanding
 coupon. That is an intentional limit of admin retry behavior. Configuration
 remains fixed for the store's lifetime. Coupons snapshot their discount percent.
+For PostgreSQL, the store lifetime spans deployments: its namespace retains the
+configuration saved when first seeded.
 `src/config.ts` parses startup environment values and validates their ranges.
 `createApp()` uses those settings; injected stores can specify settings for tests.
 The store validates, copies, and freezes settings so outside mutation cannot
@@ -419,12 +466,12 @@ documentation. [AUDIT.md](AUDIT.md) records the evidence, concrete fixes, execut
 checks, and documented limitations. No additional missing required commerce
 behavior was found within the single-process model.
 
-**Intentionally deferred:** Persistence/restart recovery, multi-instance
-coordination, authentication/authorization, real payments, reservations, coupon
+**Intentionally deferred:** Normalized database tables, finer-grained database
+locking, authentication/authorization, real payments, reservations, coupon
 ownership/expiry/stacking, taxes/shipping, refunds/cancellations, pagination,
-idempotency retention policies, deployment infrastructure, and load testing.
-Request logging and CI are also deferred to keep this service focused on the
-required behavior and local evaluation commands.
+idempotency retention policies, and load testing. Request logging and a separate
+CI workflow are also deferred. PostgreSQL persistence, cross-instance coordination,
+and Vercel deployment are implemented; Vercel runs the default checks before deployment.
 
 **Browser demo:** I added a small HTML/CSS/JavaScript interface in `public/`, served
 by Express from the same origin. No framework, bundler, extra dependency, CORS
@@ -461,15 +508,16 @@ README.md documents startup, the reward walkthrough, and these limits.
 11 operations, required JSON objects, checkout key, response shapes, and errors.
 Swagger UI uses locally installed assets and sends requests to the same server;
 it needs no CDN, credentials, or external validation service. Its write requests
-change the same in-memory store as the demo. The specification is maintained
+change the same store as the demo. The specification is maintained
 alongside API.md; tests validate its structure/references, compare operation
 coverage with the written endpoint index, and exercise request examples/retries.
 
 ## Evolution to multiple instances and production scale
 
-Move carts, catalog/inventory, orders/lines, coupons, milestones, and idempotency
-records to a durable database. Place checkout validation and all writes in one
-database transaction. Lock inventory rows in a consistent product-ID order or
+The PostgreSQL snapshot adapter already provides durable cross-instance
+coordination. For higher throughput, move carts, catalog/inventory, orders/lines,
+coupons, milestones, and idempotency records into normalized tables. Keep checkout
+validation and writes in one database transaction. Lock inventory rows in a consistent product-ID order or
 use conditional stock decrements and verify affected rows. Serialize cart
 checkout and coupon redemption with row locks/conditional updates. Use unique
 constraints for order cart IDs, coupon milestones, and idempotency keys so
@@ -479,7 +527,7 @@ committed result and compare identity; retry documented transaction conflicts.
 
 Replace the order-count-derived milestone race with a transactional counter or
 equivalent serialized milestone allocation, while keeping report reconciliation
-against orders. Add persistence/recovery, authentication and admin authorization,
+against orders. Add backup/recovery procedures, authentication and admin authorization,
 bounded requests, idempotency retention rules, pagination, observability, and
 capacity tests according to actual usage. Production reports can use database
 aggregations and eventually maintained summaries with reconciliation checks.
@@ -496,11 +544,13 @@ administrative reporting, and focused tests. I also used it for the API/operatio
 documentation review, executable API example, and parser error regression fix,
 the final requirement audit and decoding-error fix, and the small browser demo
 and its client/HTTP tests, plus Swagger UI, the OpenAPI contract, and documentation
-checks. I also used it to run real HTTP requests, browser
+checks, the PostgreSQL adapter and integration tests, and Vercel deployment setup.
+I also used it to run real HTTP requests, browser
 walkthroughs, and service/domain checks.
 Sandbox restrictions required permitted reruns of dependency installation and
-local HTTP tests. The current tests cover single-process stock, retries, and
-coupon/report behavior; they do not establish multi-instance coordination.
+local HTTP/database tests. The tests cover local stock/retry/coupon/report rules
+and independent app instances sharing PostgreSQL. They do not establish capacity
+or a complete production security model.
 
 The initial generated server included explicit validation of the `PORT`
 environment variable in `src/server.ts`. I rejected that defensive check as
@@ -520,6 +570,7 @@ transaction/idempotency boundary with failure-injection and coordinated competin
 HTTP requests: missing responses, repeated keys with different identities, coupon
 contention, and state unchanged after each failure. I would next verify
 arithmetic/report reconciliation at rounding and safe-integer boundaries, then
-assess a durable database transaction design and crash/restart behavior. I would
+examine snapshot-size limits, database connection failures, backup/recovery, and
+a normalized transaction design. I would
 prioritize these over a larger frontend or deployment setup, adjusting priorities
 based on audit gaps.

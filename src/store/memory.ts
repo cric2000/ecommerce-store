@@ -3,7 +3,7 @@ import { DEFAULT_REWARDS, validateRewardConfig, type RewardConfig } from '../con
 import { seedProducts } from './seed.js';
 import { Mutex } from './mutex.js';
 
-interface CheckoutRecord {
+export interface CheckoutRecord {
   readonly cartId: string;
   readonly couponCode: string | null;
   readonly orderId: string;

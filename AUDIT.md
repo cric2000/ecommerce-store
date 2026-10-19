@@ -22,7 +22,7 @@ or documentation evidence exists; executed check results are recorded separately
 
 | Assignment lines | Requirement | Evidence | Result |
 | --- | --- | --- | --- |
-| 1–6 | Backend scope, overlapping requests, prioritization | [DECISIONS.md](DECISIONS.md) records the focused in-memory design, priorities, and deferrals. | Covered |
+| 1–6 | Backend scope, overlapping requests, prioritization | [DECISIONS.md](DECISIONS.md) records the local memory mode, shared PostgreSQL adapter, priorities, and deferrals. | Covered |
 | 7–8 | Product fields, five seeds, limited inventory | [types.ts](src/domain/types.ts), [seed.ts](src/store/seed.ts), and [carts.test.ts](test/carts.test.ts) verify five products and one single-stock product. | Covered |
 | 9–10 | Multiple cart lines; reject invalid products/quantities | [carts.ts](src/services/carts.ts), [validation.ts](src/domain/validation.ts), [carts.test.ts](test/carts.test.ts), and [carts-api.test.ts](test/carts-api.test.ts). | Covered |
 | 11 | Never oversell inventory | [orders.ts](src/services/orders.ts) validates under the store mutex; [checkout-concurrency.test.ts](test/checkout-concurrency.test.ts) and [orders-api.test.ts](test/orders-api.test.ts) compete for the last item. | Covered |
@@ -42,17 +42,66 @@ or documentation evidence exists; executed check results are recorded separately
 | 41 | Report reconciliation and read-only behavior | [reports.test.ts](test/reports.test.ts) and [reports-api.test.ts](test/reports-api.test.ts) reconcile receipts/coupons and verify repeated reads, catalog independence, and complete committed states. | Covered |
 | 42–48 | Every minimum API operation | [route files](src/routes/carts.ts), [API endpoint index](API.md#endpoint-index), and [checkout.mjs](examples/checkout.mjs) cover all required operations, plus health/catalog. | Covered |
 | 49–50 | Endpoint contracts and administrative status | [API.md](API.md) documents methods, paths, bodies, response shapes, statuses, errors, and the two administrative routes without authentication. | Covered |
-| 51–53 | In-memory overlap safety and multi-instance evolution | [mutex.ts](src/store/mutex.ts), [mutex.test.ts](test/mutex.test.ts), [checkout-concurrency.test.ts](test/checkout-concurrency.test.ts), and [DECISIONS.md](DECISIONS.md#evolution-to-multiple-instances-and-production-scale). | Covered |
+| 51–53 | In-memory overlap safety and multi-instance coordination | [mutex.ts](src/store/mutex.ts), [checkout-concurrency.test.ts](test/checkout-concurrency.test.ts), [postgres.ts](src/store/postgres.ts), [postgres.test.ts](test/postgres.test.ts), and [DECISIONS.md](DECISIONS.md#evolution-to-multiple-instances-and-production-scale). | Covered |
 | 54–57 | Source, repeatable setup/run/seed, no private application dependencies | [package.json](package.json), [package-lock.json](package-lock.json), [seed.ts](src/store/seed.ts), and [README.md](README.md) support a fresh local installation without credentials or a database. | Covered |
 | 58–59 | Focused failure tests and meaningful contention/retries | [checkout-concurrency.test.ts](test/checkout-concurrency.test.ts), [orders-api.test.ts](test/orders-api.test.ts), and [coupons-api.test.ts](test/coupons-api.test.ts) include gated/service and competing HTTP requests. | Covered |
-| 60–63 | Invariants, ambiguities, at least five material decisions | [DECISIONS.md](DECISIONS.md) contains invariants and nine decisions with context, alternatives, choice, reasons, and consequences. | Covered |
-| 64–68 | Transactions/retries, money, errors, deferrals, production evolution | The corresponding sections in [DECISIONS.md](DECISIONS.md) match the staged checkout, shared lock, exact arithmetic, HTTP errors, and single-process limits. | Covered |
-| 69–72 | Honest AI use, a real correction, further priorities, decision structure | [AI-use note](DECISIONS.md#actual-ai-use) records the rejected PORT guard; [further priorities](DECISIONS.md#first-priorities-with-another-two-hours) and all nine decision sections are present. | Covered |
+| 60–63 | Invariants, ambiguities, at least five material decisions | [DECISIONS.md](DECISIONS.md) contains invariants and ten decisions with context, alternatives, choice, reasons, and consequences. | Covered |
+| 64–68 | Transactions/retries, money, errors, deferrals, production evolution | The corresponding sections in [DECISIONS.md](DECISIONS.md) match staged checkout, shared PostgreSQL transactions, exact arithmetic, HTTP errors, and storage limits. | Covered |
+| 69–72 | Honest AI use, a real correction, further priorities, decision structure | [AI-use note](DECISIONS.md#actual-ai-use) records the rejected PORT guard; [further priorities](DECISIONS.md#first-priorities-with-another-two-hours) and all ten decision sections are present. | Covered |
 | 73–74 | Meaningful commits and validated AI assistance | `git log --oneline --reverse` shows setup, domain, cart, checkout, concurrency, coupon, report, and documentation increments; checks are recorded below. | Covered |
 | 75–81 | Explanation/debugging, actual AI use, no private transcripts | [DECISIONS.md](DECISIONS.md) explains invariants, transaction paths, weaknesses, configuration, and actual AI use. No private transcripts are included. | Documented |
 | 82–89 | Evaluation criteria | The source/test evidence above addresses correctness, reasoning, failures, domain/API design, tests, and focused code. | Documented |
 | 90 | Optional frontend | The [browser demo](README.md#browser-demo) calls the backend for products, cart edits, coupon checkout, receipts, and reporting. Client/serving tests are in [demo-client.test.js](test/demo-client.test.js) and [demo-api.test.ts](test/demo-api.test.ts). | Implemented |
 | 91–98 | Repository contents | Source, run instructions, API/example, tests, and decisions are present. Public repository access and the remote implementation commit were verified during final acceptance below. | Verified |
+
+## Shared PostgreSQL and Vercel verification
+
+For Vercel deployment, I added an optional PostgreSQL adapter while retaining
+credential-free local memory mode and the existing business services. Independent
+instances serialize writes with a namespace row lock, commit the complete state
+before responding, and preserve carts/orders/coupons/keys across restarts.
+Reads and matching checkout replays do not rewrite the saved snapshot.
+
+Using a disposable PostgreSQL 18 container on port 55432, I ran the suite with
+`TEST_DATABASE_URL` configured: all 240 tests passed across 18 files. Nine new
+integration tests cover concurrent initialization, retained receipts and reward
+configuration, last-item contention, matching/conflicting retries, competing
+checkout of one cart, coupon generation/redemption, rollback, namespace isolation,
+and read-only reports. A real SQL constraint rejects a prepared checkout and
+verifies that HTTP returns 500, saved state stays unchanged, and the same key can
+succeed after the constraint is removed.
+
+The default suite remains independent of database credentials and skips these
+nine tests when `TEST_DATABASE_URL` is absent. Earlier audit results below record
+the implementation before the PostgreSQL adapter was added.
+
+I provisioned the Neon Free database `ecommerce-store-db` and linked the Vercel
+Hobby project `ecommerce-store` to `cric2000/ecommerce-store`, production branch
+`main`. The production database connection and a write/read across two independent
+adapters passed using an isolated verification namespace, which was removed.
+Credentials stay in Vercel settings and ignored environment files.
+
+Vercel's production build passed the 231 default tests (nine database tests
+skipped), typecheck, and compilation. Its additional TypeScript packaging step
+initially failed to resolve Node types with TypeScript 7. I added `app.mjs` to
+load the already compiled Express app; the subsequent Vercel build passed on
+Node.js 24. The build artifact includes the demo and Swagger assets through its
+file-path map. Native Git deployment is enabled for `main` only.
+
+The [public deployment](https://ecommerce-store-seven-opal.vercel.app/) returned
+200 for health, catalog, demo, Swagger UI, OpenAPI, and Swagger assets. Running
+`node examples/checkout.mjs https://ecommerce-store-seven-opal.vercel.app` passed
+all API operations: six orders, 67500 paise gross, 500 discounts, 67000 net, and
+one redeemed coupon. A browser checkout then purchased one mug, displayed its
+receipt, cleared the cart, and updated the report to seven orders. No browser
+console warnings or errors were reported.
+
+A subsequent full remote deployment passed the default suite, typecheck, and
+build on Vercel. After it replaced the first deployment, the seven orders and
+saved mug receipt were still available; gross revenue remained 87400 paise,
+discounts 500, and net revenue 86900. The served OpenAPI validated with all 11
+operations, public assets returned 200, and source/environment/package paths
+returned 404. Repeated report reads remained unchanged.
 
 ## Final acceptance verification
 
@@ -198,12 +247,16 @@ only newly added items. These checks covered checkout with and without a coupon.
 
 The browser keeps its current cart, receipt, latest coupon, and uncertain retry
 key only while the page remains open. Reload recovery/history is outside this
-small demo. Server state and the single-process limitations remain unchanged.
+small demo. These browser checks used local memory mode; the shared PostgreSQL
+behavior is verified separately above.
 
 ## Documented limitations
 
-I found no additional missing required commerce behavior within the documented
-single-process model. State is intentionally lost on restart; separate processes
-do not coordinate. The complete deferral list and database/payment evolution are
-in [DECISIONS.md](DECISIONS.md). Authentication, real payments, CI,
-request logging, and deployment infrastructure remain outside this implementation.
+Local memory mode loses state on restart and cannot coordinate independent
+processes. PostgreSQL mode preserves state and coordinates instances, but each
+write serializes the entire store under one row lock. Snapshot size, write
+throughput, and report scans limit scale. The complete deferral list and
+normalized database/payment evolution are in [DECISIONS.md](DECISIONS.md).
+Authentication, real payments, request logging, a separate CI workflow, and load
+testing remain outside this implementation. Vercel builds run the default tests,
+typecheck, and compilation.

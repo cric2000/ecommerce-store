@@ -10,7 +10,11 @@ endpoint statuses below and [DECISIONS.md](DECISIONS.md) for the design choices.
 - Interactive Swagger UI is served at `GET /docs` (also `/docs/`), with the
   OpenAPI 3.0 document at `GET /docs/openapi.json`. It describes the 11 JSON
   operations below. **Try it out** executes against the current server and
-  shares its live in-memory state with the browser demo. UI assets are local.
+  shares its live store with the browser demo. UI assets are local.
+- Storage mode: without a database URL, state is in memory and resets on restart.
+  With `DATABASE_URL`/`POSTGRES_URL`, a PostgreSQL namespace stores the complete
+  state durably. Writes serialize with `SELECT ... FOR UPDATE` and respond only
+  after commit; reads see a committed snapshot. See [README.md](README.md#storage-modes).
 - The optional browser demo is at `GET /` (HTML), with `/app.js`, `/client.js`, and
   `/styles.css` static assets. The JSON API operations are listed below; the demo
   calls them on the same origin. See [README.md](README.md#browser-demo).
@@ -235,7 +239,7 @@ HTTP, not persistence, inventory integrity, or payment readiness.
 **Implemented. Non-administrative.** No request body.
 
 Response: **200 OK**, `{ "currency": "INR", "products": [Product] }`, using the
-Product shape above. Five products are seeded at startup, including one with
+Product shape above. Five products seed a new store, including one with
 inventory of one; see README.md for actual seed values. This read does not reserve
 inventory. No expected domain errors for a normal request.
 
@@ -313,11 +317,13 @@ Arrays, null/blank codes, codes longer than 128 characters, and extra properties
 return `INVALID_REQUEST` (400). Codes are compared exactly, without trimming or
 case conversion. There is no coupon stacking, expiry, or customer ownership.
 
-Inside the shared store mutex, check for a successful key first, then validate
+Inside the shared store transaction, check for a successful key first, then validate
 the nonempty active cart, quantities, unique product lines, current prices/stock,
 and any supplied coupon. Prepare the order snapshot, inventory deductions, closed
 cart, successful key record, and redeemed coupon before publishing them together.
-Failure before commit changes none of those records and leaves the key unbound.
+Failure before commit changes none of those records and leaves a previously
+unbound key unbound. Memory mode uses the store mutex; PostgreSQL additionally
+holds the namespace row lock until the full snapshot commits.
 
 Response: **201 Created**, an Order and `Location: /orders/<returned-id>`.
 With a coupon, snapshot its code/milestone/percentage, calculate one half-up
@@ -344,8 +350,9 @@ Retry rules:
 - Concurrent matching retries return one and the same order. Competing checkouts
   cannot oversell stock or redeem one coupon twice. Cart edits and administrative
   generation share the lock, preventing stale writes and duplicate milestones.
-- Keys/orders/coupons last until restart, with no expiry. This coordinates one
-  shared store in one process, not independent instances or a production database.
+- Keys/orders/coupons have no expiry. Memory mode loses them on restart and only
+  coordinates one process. PostgreSQL mode preserves them across restarts and
+  deployments and coordinates independent instances sharing the same namespace.
 
 Important errors: `INVALID_REQUEST`/`INVALID_QUANTITY`/`INVALID_IDEMPOTENCY_KEY`
 (400), `CART_NOT_FOUND`/`PRODUCT_NOT_FOUND` (404), `EMPTY_CART`,
@@ -366,8 +373,10 @@ Response: **200 OK**, the immutable Order shape. Important error:
 ## POST /admin/coupons
 
 **Implemented. Administrative; no authentication.** Request body: `{}`. Configuration
-comes from startup environment values, not this request. Settings remain fixed
-for the store lifetime; invalid values fail startup before listening. Values must
+initializes from environment values, not this request. Settings remain fixed
+for the store lifetime: memory mode loads them at startup; PostgreSQL stores them
+when a namespace is first created and retains them across restarts. Invalid
+environment values fail startup before listening. Values must
 contain decimal digits only (no signs, whitespace, or exponents):
 
 | Variable | Meaning | Default | Allowed values |
@@ -425,7 +434,8 @@ sorted by ID. An empty system returns `[]` and zero for all totals/counts.
 Repeated reads do not generate coupons, advance milestones, or mutate counters.
 No expected domain conflicts; `AMOUNT_OUT_OF_RANGE` (422) applies if an aggregate
 would exceed safe numeric output. The report reflects one captured committed
-store state and runs synchronously without acquiring the mutation lock or changing
+store state. Memory mode captures it synchronously; PostgreSQL reads the saved
+committed snapshot without taking a write lock. Report calculation does not change
 state. Failed checkouts, active carts, and idempotent replays add no order records
 and therefore add no purchases or revenue. Current catalog price/name changes or
 deletion do not affect totals derived from saved order snapshots. Zero-total
