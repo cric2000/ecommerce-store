@@ -109,15 +109,7 @@ browser state while the running server retains its records; this small demo has
 no saved-cart recovery or order history screen. Restarting the server resets all
 data. Development reloads also reset server data, so reload the page afterward.
 
-## Health endpoint
-
-```sh
-curl -i http://localhost:3000/health
-```
-
-`GET /health` returns HTTP 200 with `{"status":"ok"}`. It requires no request body.
-
-## Seeded catalog and carts
+## Seeded catalog
 
 Five products are seeded automatically when an app/store starts. No separate
 seed command is needed. All data is in memory: restarting the process restores
@@ -132,44 +124,7 @@ reset this state.
 | `product-4` | Backpack | 149900 | 10 |
 | `product-5` | Desk lamp | 74900 | 1 |
 
-```sh
-curl http://localhost:3000/products
-curl -i -H 'Content-Type: application/json' -d '{}' http://localhost:3000/carts
-```
-
-Use the returned cart ID with the add/update/remove/read endpoints in
-[API.md](API.md). Adding an existing product increments its quantity; PATCH sets
-the absolute quantity; DELETE removes the line. Zero is not a valid quantity.
-Cart changes check stock but do not reserve or reduce it. Views use current
-prices and retain requested quantities when availability falls, marking those
-lines `isAvailable: false`. Checkout rechecks current prices and stock.
-
-## Checkout and orders
-
-After adding items, replace `CART_ID` in this request with the returned cart ID:
-
-```sh
-curl -i -H 'Content-Type: application/json' -H 'Idempotency-Key: checkout-1' -d '{}' http://localhost:3000/carts/CART_ID/checkout
-```
-
-Checkout returns HTTP 201, the order snapshot, and a `Location: /orders/<id>`
-header. Read that order with `GET /orders/<id>`. It preserves product IDs/names,
-quantities, unit prices, line totals, subtotal, applied coupon, discount, and
-final total after later catalog changes. Successful checkout counts as payment
-success; no real payment is performed.
-
-The checked-out cart cannot be edited or checked out again. It remains readable
-with its `orderId`; use the order endpoint for the historical purchase receipt.
-Checkout accepts `{}` or one optional `couponCode` and requires exactly one
-`Idempotency-Key`.
-Use a new key for each new purchase; reuse it only to retry that same request.
-A matching successful retry returns the original 201, order body, and Location,
-without another order or stock deduction. Reusing a successful key for a different
-cart or coupon returns 409 `IDEMPOTENCY_KEY_CONFLICT`; using a fresh key on a completed cart
-returns 409 `CART_ALREADY_CHECKED_OUT`. Failed attempts do not bind the key.
-Failed validation leaves stock/cart/order/key/coupon state unchanged.
-
-## Coupon rewards
+## Coupon configuration
 
 Startup settings are `COUPON_INTERVAL` (`n`, default 5, positive safe integer)
 and `DISCOUNT_PERCENT` (`x`, default 10, integer 1–100). Values must use decimal
@@ -181,40 +136,215 @@ COUPON_INTERVAL=2 DISCOUNT_PERCENT=10 npm run dev
 ```
 
 After each two successfully placed orders in this example, an administrator can
-request one coupon for the oldest reached milestone that has not been rewarded:
+generate one coupon for the oldest reached milestone that has not been rewarded.
+With the defaults, the first coupon becomes eligible after five successful orders.
+Generation is explicit, one coupon per request; milestone coupons can coexist.
+
+## API routes
+
+Start the server first, then set the base URL in the terminal used for these
+examples. Change the port if needed:
 
 ```sh
-curl -i -H 'Content-Type: application/json' -d '{}' http://localhost:3000/admin/coupons
+BASE_URL='http://localhost:3000'
 ```
 
-This administrative route has no authentication. It returns 201 and the coupon,
-or 409 `NO_ELIGIBLE_MILESTONE`. Generation is explicit, one coupon per request;
-retries may generate the next outstanding milestone. Milestone coupons can coexist.
+All API responses are JSON. Money fields ending in `Paise` use integer INR paise
+(100 paise = ₹1). POST/PATCH requests require `Content-Type: application/json`
+and a JSON object, including `{}` where shown. Unknown body properties and numeric
+strings are rejected. Quantities must be positive safe integers; zero is invalid.
+GET/DELETE requests below have no body. No query parameters or authentication are
+required; `/admin/*` routes are administrative by convention only.
 
-To redeem a returned code, use an active cart, a new checkout key, and replace
-`COUPON_CODE` below with the actual code:
+| Method | Route | Purpose | Success |
+| --- | --- | --- | --- |
+| GET | `/health` | Check process health | 200 |
+| GET | `/products` | List current products and inventory | 200 |
+| POST | `/carts` | Create an empty cart | 201 |
+| GET | `/carts/:cartId` | Read a cart and current totals | 200 |
+| POST | `/carts/:cartId/items` | Add an item or increment its quantity | 200 |
+| PATCH | `/carts/:cartId/items/:productId` | Set an existing item's quantity | 200 |
+| DELETE | `/carts/:cartId/items/:productId` | Remove an existing item | 200 |
+| POST | `/carts/:cartId/checkout` | Place an order, optionally with a coupon | 201, including matching retries |
+| GET | `/orders/:orderId` | Read a saved order receipt | 200 |
+| POST | `/admin/coupons` | Generate one eligible milestone coupon | 201 |
+| GET | `/admin/report` | Read reconciled sales and coupon totals | 200 |
+
+### GET /health
 
 ```sh
-curl -i -H 'Content-Type: application/json' -H 'Idempotency-Key: checkout-with-coupon-1' -d '{"couponCode":"COUPON_CODE"}' http://localhost:3000/carts/CART_ID/checkout
+curl -i "$BASE_URL/health"
 ```
+
+Returns **200** with `{"status":"ok"}`. This checks whether the process can
+answer HTTP requests.
+
+### GET /products
+
+```sh
+curl -i "$BASE_URL/products"
+```
+
+Returns **200** with `currency` and a `products` array. Each product includes
+`id`, `name`, `unitPricePaise`, and `availableInventory`. Use a returned product
+ID when adding an item. Reading the catalog does not reserve inventory.
+
+### POST /carts
+
+```sh
+curl -i -X POST "$BASE_URL/carts" \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+```
+
+Returns **201** with an empty active cart and `Location: /carts/<id>`. Copy the
+returned `id` into this variable for the cart examples:
+
+```sh
+CART_ID='paste-returned-cart-id'
+```
+
+Each call creates a separate cart. A missing body or extra JSON properties
+returns **400** `INVALID_REQUEST`.
+
+### GET /carts/:cartId
+
+```sh
+curl -i "$BASE_URL/carts/$CART_ID"
+```
+
+Returns **200** with cart status, `orderId`, `currency`, item quantities/current
+prices, line totals, stock availability, and `subtotalPaise`. Active and
+checked-out carts remain readable. Prices are current; use the order route for
+the historical receipt. A missing cart returns **404** `CART_NOT_FOUND`.
+
+### POST /carts/:cartId/items
+
+```sh
+curl -i -X POST "$BASE_URL/carts/$CART_ID/items" \
+  -H 'Content-Type: application/json' \
+  -d '{"productId":"product-1","quantity":1}'
+```
+
+Returns **200** with the updated cart. Adding the same product again increments
+its quantity. Stock is checked but not reserved or deducted. Invalid quantities
+return **400** `INVALID_QUANTITY`; missing carts/products return **404**;
+insufficient stock or a checked-out cart returns **409**. Failed changes leave
+the cart unchanged.
+
+### PATCH /carts/:cartId/items/:productId
+
+```sh
+curl -i -X PATCH "$BASE_URL/carts/$CART_ID/items/product-1" \
+  -H 'Content-Type: application/json' \
+  -d '{"quantity":2}'
+```
+
+Returns **200** with the updated cart. This sets the absolute quantity to two.
+Use DELETE to remove an item; setting zero returns **400** `INVALID_QUANTITY`.
+A missing cart/product/line returns **404**; insufficient stock or a checked-out
+cart returns **409**.
+
+### DELETE /carts/:cartId/items/:productId
+
+```sh
+curl -i -X DELETE "$BASE_URL/carts/$CART_ID/items/product-1"
+```
+
+Returns **200** with the updated cart. Repeating removal returns **404**
+`CART_ITEM_NOT_FOUND`; a checked-out cart returns **409**
+`CART_ALREADY_CHECKED_OUT`. If this removes the last item, add an item again
+using the POST example before checking out.
+
+### POST /carts/:cartId/checkout
+
+Use an active, nonempty cart. Without a coupon:
+
+```sh
+curl -i -X POST "$BASE_URL/carts/$CART_ID/checkout" \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: checkout-1' \
+  -d '{}'
+```
+
+With a coupon, create/populate another cart, set `CART_ID` to its returned ID,
+and use an available code from the administrator coupon route:
+
+```sh
+COUPON_CODE='paste-generated-coupon-code'
+curl -i -X POST "$BASE_URL/carts/$CART_ID/checkout" \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: checkout-with-coupon-1' \
+  -d "{\"couponCode\":\"$COUPON_CODE\"}"
+```
+
+Returns **201** with the order snapshot and `Location: /orders/<id>`. The receipt
+contains purchased items/prices, subtotal, applied coupon or `null`, discount,
+and final total. Stock is deducted and the cart becomes `checked_out`.
+Successful checkout counts as payment success; no real money is charged.
+
+Checkout requires exactly one `Idempotency-Key` of 1–128 letters, digits, dots,
+underscores, colons, or hyphens. Choose a new key for each purchase. After an
+uncertain result, retry with the **same key, cart ID, and coupon body**. A matching
+successful retry returns the original **201**, order, and Location without
+another purchase, stock deduction, or coupon redemption. Reusing a successful
+key with a different cart/coupon returns **409** `IDEMPOTENCY_KEY_CONFLICT`.
+A new key on a completed cart returns **409** `CART_ALREADY_CHECKED_OUT`.
+
+Missing/invalid keys or malformed coupon values return **400**; missing
+carts/products return **404**; an empty cart, insufficient stock, or unknown/used
+coupon returns **409**. Unsafe calculated amounts return **422**. Failed
+validation leaves stock, cart, order, key, and coupon state unchanged. An
+unsuccessful first attempt leaves its key unbound.
 
 Coupons are shared, case-sensitive, have no expiry, and are single-use. One coupon
-can be applied per checkout. The whole subtotal is discounted with half-up
-rounding in paise; 100% discounts produce zero-total successful orders. A failed
-checkout does not consume a coupon. Matching checkout retries return the original
-order without redeeming again; changing the coupon on a successful key conflicts.
+can be applied per order. Discounts use half-up rounding once on the subtotal;
+a 100% discount produces a valid zero-total order.
 
-## Administrative report
+### GET /orders/:orderId
+
+Copy the successful checkout response's `id` into `ORDER_ID`:
 
 ```sh
-curl http://localhost:3000/admin/report
+ORDER_ID='paste-returned-order-id'
+curl -i "$BASE_URL/orders/$ORDER_ID"
 ```
 
-`GET /admin/report` is administrative and has no authentication. It returns
-purchased quantities by product ID, gross revenue before discounts, total
-discounts, net revenue, generated/available/redeemed coupon counts, and the
-successfully placed order count. Amounts are integer paise; only purchased
-products appear, sorted by ID. An empty store returns empty quantities and zero
+Returns **200** with the immutable purchase receipt, including product names,
+quantities, prices, coupon details, and totals. Later catalog changes do not
+alter it. A missing order returns **404** `ORDER_NOT_FOUND`.
+
+### POST /admin/coupons
+
+**Administrative; no authentication.** Reach an unrewarded successful-order
+milestone first, then request a coupon:
+
+```sh
+curl -i -X POST "$BASE_URL/admin/coupons" \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+```
+
+Returns **201** with `code`, `milestone`, `discountPercent`, `status: "available"`,
+and `redeemedOrderId: null`. Use the returned code in a later checkout.
+No eligible milestone returns **409** `NO_ELIGIBLE_MILESTONE`. Generation is
+explicit and limited to one coupon per milestone; there is no automatic
+generation during checkout. This route is not idempotent: retrying may generate
+the next outstanding milestone. Settings come from startup configuration, not
+the request body.
+
+### GET /admin/report
+
+**Administrative; no authentication.**
+
+```sh
+curl -i "$BASE_URL/admin/report"
+```
+
+Returns **200** with `purchasedQuantityByProduct`, `grossRevenuePaise`,
+`totalDiscountsPaise`, `netRevenuePaise`, coupon counts (`generated`, `available`,
+`redeemed`), `totalOrders`, and `currency`. Only purchased products appear,
+grouped/sorted by product ID. An empty store returns empty quantities and zero
 totals/counts.
 
 The report reads one committed state synchronously, using saved orders and coupon
@@ -222,6 +352,20 @@ records. Current catalog prices, active carts, failed checkouts, and successful
 retries do not add revenue. Reading the report does not generate eligible coupons
 or mutate state. A quantity or monetary aggregate outside the safe-integer range
 returns 422 `AMOUNT_OUT_OF_RANGE` instead of an imprecise number.
+
+### Common errors and full contract
+
+Errors use `{"error":{"code":"...","message":"..."}}`, with optional
+`details` for validation/stock context. Common failures include **400** for
+malformed JSON or invalid input, **404** for missing resources, **409** for
+business conflicts, **413** for JSON bodies above 100 KiB, **415** for unsupported
+media types/charsets/encodings, **422** for unsafe calculated amounts, and **500**
+for unexpected failures. Error codes are stable; message text is not a client
+contract. See [API.md](API.md) for complete response shapes and error cases, or
+use [Swagger UI](http://localhost:3000/docs) to execute requests interactively.
+
+The browser demo is served at `GET /`, Swagger UI at `GET /docs` (also `/docs/`),
+and the machine-readable specification at `GET /docs/openapi.json`.
 
 ## Checks
 
