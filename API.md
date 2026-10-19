@@ -7,6 +7,9 @@ endpoint statuses below and [DECISIONS.md](DECISIONS.md) for the design choices.
 
 ## Common conventions
 
+- The optional browser demo is at `GET /` (HTML), with `/app.js`, `/client.js`, and
+  `/styles.css` static assets. The JSON API operations are listed below; the demo
+  calls them on the same origin. See [README.md](README.md#browser-demo).
 - Base URL: `http://localhost:3000`; `PORT` can override the port.
 - No authentication is implemented or required. `/admin/*` operations are
   administrative by convention only.

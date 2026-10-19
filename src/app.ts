@@ -1,4 +1,5 @@
 import express from 'express';
+import { fileURLToPath } from 'node:url';
 import { readRewardConfig } from './config.js';
 import { DomainError } from './domain/errors.js';
 import { errorHandler } from './http/errors.js';
@@ -16,6 +17,7 @@ import { InMemoryStore } from './store/memory.js';
 
 export function createApp(store = new InMemoryStore(undefined, readRewardConfig())): express.Express {
   const app = express();
+  app.use(express.static(fileURLToPath(new URL('../public/', import.meta.url))));
 
   app.get('/health', (_request, response) => {
     response.status(200).json({ status: 'ok' });

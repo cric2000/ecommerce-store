@@ -7,7 +7,8 @@ Project tooling, application/server entry points, `GET /health`, domain types,
 quantity/money validation, exact money helpers, seeded catalog, cart lifecycle,
 JSON errors, checkout with optional coupons, order retrieval, coupon generation,
 shared mutation locking, idempotent replay, and read-only reporting are
-implemented. API/operational review and the final backend audit are complete.
+implemented. A small browser demo now calls those APIs from `/`.
+API/operational review and the final backend audit are complete.
 The requirement comparison and verification evidence are in [AUDIT.md](AUDIT.md).
 The decisions below describe the implementation and deferred concerns. See
 [API.md](API.md) for the HTTP contract.
@@ -401,7 +402,7 @@ no parser internals. HTTP regression tests reproduce both cases and verify that
 normal requests still work afterward. Same-cart checkouts with different keys
 also have an explicit contention test, including which key becomes bound.
 
-**Operational verification:** I verified a fresh source copy without existing
+**Backend audit verification (before the browser demo):** I verified a fresh source copy without existing
 `node_modules` or `dist`, using Node.js 24.21.0 and npm 11.19.0. Locked installation
 with `npm ci` (using a writable npm package cache), all 214 tests,
 `npm run typecheck`, and `npm run build` passed. The executable example passed
@@ -409,7 +410,7 @@ against the compiled server using `npm start`, port 3110, interval 5, and discou
 10. It checked all endpoints, six orders, gross revenue 67500 paise, discounts
 500, net revenue 67000, and one redeemed coupon. The earlier operational review
 also verified the example against `npm run dev` and confirmed that restarting
-restores the seed and empty state. [AUDIT.md](AUDIT.md#verification) records the
+restores the seed and empty state. [AUDIT.md](AUDIT.md#backend-audit-verification) records the
 final commands and results.
 
 **Final backend audit:** I compared every assignment line with source, tests, and
@@ -423,8 +424,37 @@ coordination, authentication/authorization, real payments, reservations, coupon
 ownership/expiry/stacking, taxes/shipping, refunds/cancellations, pagination,
 idempotency retention policies, deployment infrastructure, and load testing.
 Request logging and CI are also deferred to keep this service focused on the
-required behavior and local evaluation commands. A frontend is optional and only
-considered after backend requirements are sound.
+required behavior and local evaluation commands.
+
+**Browser demo:** I added a small HTML/CSS/JavaScript interface in `public/`, served
+by Express from the same origin. No framework, bundler, extra dependency, CORS
+setup, or second server is needed. It displays server-returned cart totals,
+order snapshots, discounts, and report fields; it does not implement pricing,
+coupon eligibility, inventory validation, or checkout rules. API values are
+inserted as text, and rupee formatting uses exact integer paise.
+The purchase summary uses current catalog names as display labels for the
+backend's product-ID aggregates. Confirmed checkout clears the browser cart and
+coupon input while preserving the saved order receipt and its retrieval.
+
+The browser serializes its actions and disables cart/coupon edits during an
+uncertain checkout. It retains the exact request key/body after network failures,
+timeouts, or server errors, so retrying can recover the original order. A definite
+client error releases that attempt for correction. After confirmed placement,
+an unrelated refresh failure preserves the receipt and does not retry checkout.
+Client tests cover these key-reuse/error distinctions and amount formatting;
+HTTP tests verify public asset serving without exposing source/config files.
+
+I use backend error codes to choose plain-language browser messages; the page
+does not show those codes or raw backend diagnostics. Dismissible notifications
+stay fixed at the top-right and slide in from the right, with the animation
+disabled for reduced-motion preferences. Coupon controls include clipboard
+copying and automatic cart creation when applying an available code. A redeemed
+coupon is labelled already used; unresolved checkout still blocks cart changes.
+
+This demo keeps the current cart, latest receipt/coupon, and pending attempt in
+page memory. Reloading clears browser state; no saved-cart recovery, history,
+or browser persistence is implemented. Admin operations remain unauthenticated.
+README.md documents startup, the reward walkthrough, and these limits.
 
 **Submission still pending:** Review and commit the remaining changes, and share
 a public or access-granted repository containing source, tests, API documentation,
@@ -460,8 +490,9 @@ helpers, seeded catalog, cart/checkout/order services and routes, the shared
 mutex, checkout retry handling, coupon configuration/generation/redemption,
 administrative reporting, and focused tests. I also used it for the API/operational
 documentation review, executable API example, and parser error regression fix,
-the final requirement audit and decoding-error fix, and to run real HTTP requests
-and service/domain checks.
+the final requirement audit and decoding-error fix, and the small browser demo
+and its client/HTTP tests. I also used it to run real HTTP requests, browser
+walkthroughs, and service/domain checks.
 Sandbox restrictions required permitted reruns of dependency installation and
 local HTTP tests. The current tests cover single-process stock, retries, and
 coupon/report behavior; they do not establish multi-instance coordination.

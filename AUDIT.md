@@ -53,10 +53,12 @@ Review and handoff items require my final review or submission actions.
 | 73–74 | Meaningful commits and validated AI assistance | `git log --oneline --reverse` shows setup, domain, cart, checkout, concurrency, coupon, report, and documentation increments; checks are recorded below. | Covered / review |
 | 75–81 | Ownership, explanation/debugging, no private transcripts | [DECISIONS.md](DECISIONS.md) explains invariants, transaction paths, weaknesses, configuration, and actual AI use. I still need to review and own every submitted change. No private transcripts are included. | Review |
 | 82–89 | Evaluation criteria | The source/test evidence above addresses correctness, reasoning, failures, domain/API design, tests, and focused code. Quality and interview ownership remain human assessments. | Evidence / review |
-| 90 | Optional frontend | No frontend is included; the executable API example demonstrates backend behavior. | Optional / deferred |
+| 90 | Optional frontend | The [browser demo](README.md#browser-demo) calls the backend for products, cart edits, coupon checkout, receipts, and reporting. Client/serving tests are in [demo-client.test.js](test/demo-client.test.js) and [demo-api.test.ts](test/demo-api.test.ts). | Implemented |
 | 91–98 | Submission artifacts and final handoff | Source, run instructions, API/example, tests, and decisions are present. I still need to review/commit this audit and share a public or access-granted repository. Remote visibility/access has not been verified. | Handoff |
 
-## Verification
+## Backend audit verification
+
+These results record the backend audit before the optional frontend was added.
 
 I verified the working source in a fresh directory without copying `node_modules`,
 `dist`, or ignored environment files. Node.js was 24.21.0 and npm was 11.19.0.
@@ -81,12 +83,52 @@ after the fix. The sandbox initially blocked loopback HTTP tests; permitted
 reruns passed. The earlier operational review also verified development startup
 and the same walkthrough with `npm run dev`.
 
+## Browser demo verification
+
+After adding and refining the optional frontend, I ran `npm test`: all 228 tests passed across
+16 files, including the existing backend checks and the new browser-client and
+static-serving tests. `npm run typecheck`, `npm run build`,
+`node --check public/app.js`, `node --check public/client.js`, and
+`git diff --check` passed.
+
+I ran the browser walkthrough against
+`PORT=3111 COUPON_INTERVAL=2 DISCOUNT_PERCENT=10 npm run dev`: cart creation,
+addition, quantity update/removal, insufficient-stock and invalid-coupon errors,
+milestone eligibility, three purchases, coupon generation/redemption, order
+receipts, repeated reports, and product quantities. The final report showed
+34900 paise gross, 1990 discounts, 32910 net, three orders, and one redeemed
+coupon. Browser checks at widths 1280 and 390 confirmed the desktop/mobile
+layouts without horizontal overflow. No browser console errors or warnings
+were reported. Uncertain checkout key reuse is covered by client tests.
+
+I also ran `PORT=3112 COUPON_INTERVAL=5 DISCOUNT_PERCENT=10 npm start` after
+building. The demo HTML, JavaScript modules, and stylesheet returned HTTP 200.
+`node examples/checkout.mjs http://localhost:3112` passed its existing six-order
+API walkthrough. No dependency or package-script changes were needed.
+
+For the notification/coupon refinements I used port 3113 with interval 1 and
+discount 10. I verified plain-language errors in a fixed, dismissible banner
+while scrolled down, including the mobile layout. Clipboard copy/paste matched
+the exact coupon code. Applying an available coupon after checkout automatically
+created a cart and filled in the code; redemption then disabled the button with
+the label Already used. No browser console errors or warnings were reported.
+
+Using the compiled server on port 3114, I verified the purchase summary displays
+catalog names instead of product IDs. Failed checkout preserved cart items;
+successful checkout cleared the cart panel and coupon input while preserving
+the saved receipt. Refreshing kept the cart empty, and the next purchase used
+only newly added items. These checks covered checkout with and without a coupon.
+
+The browser keeps its current cart, receipt, latest coupon, and uncertain retry
+key only while the page remains open. Reload recovery/history is outside this
+small demo. Server state and the single-process limitations remain unchanged.
+
 ## Remaining limits and handoff
 
 I found no additional missing required commerce behavior within the documented
 single-process model. State is intentionally lost on restart; separate processes
 do not coordinate. The complete deferral list and database/payment evolution are
-in [DECISIONS.md](DECISIONS.md). Authentication, real payments, a frontend, CI,
+in [DECISIONS.md](DECISIONS.md). Authentication, real payments, CI,
 request logging, and deployment infrastructure remain outside this implementation.
 
 The configured Git remote alone does not establish public or reviewer access.

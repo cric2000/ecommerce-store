@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Everyday essentials, with a simple cart and checkout demo.">
+  <title>Everyday Supply · Checkout demo</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#catalog">Skip to products</a>
+  <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="notebook" viewBox="0 0 100 100"><rect x="26" y="16" width="51" height="70" rx="5"/><path d="M37 16v70M47 35h20M47 43h15M21 28h10M21 43h10M21 58h10M21 73h10"/></symbol>
+    <symbol id="pen" viewBox="0 0 100 100"><path d="m31 72 7-18 33-33a8 8 0 0 1 12 12L50 66l-19 6 5-5M65 27l12 12M39 54l11 12M56 25l-8 8"/></symbol>
+    <symbol id="mug" viewBox="0 0 100 100"><path d="M24 35h47v34a15 15 0 0 1-15 15H39a15 15 0 0 1-15-15ZM71 42h7a13 13 0 0 1 0 26h-7M35 25v-8M48 25V12M61 25v-8"/></symbol>
+    <symbol id="backpack" viewBox="0 0 100 100"><rect x="23" y="26" width="55" height="61" rx="14"/><path d="M39 26v-7a11 11 0 0 1 22 0v7M24 45h53M34 64h32v15H34ZM43 52h14"/></symbol>
+    <symbol id="lamp" viewBox="0 0 100 100"><path d="M29 86h44M51 85V57L32 36M24 29l12-13 26 8-24 25-14-20ZM51 57l18-23M63 29l12 12"/><circle cx="51" cy="57" r="4"/></symbol>
+  </svg>
+
+  <div class="page">
+    <header class="site-header">
+      <a class="brand" href="/">e<span class="brand-dot">.</span> <span>Everyday Supply</span></a>
+      <nav aria-label="Main navigation"><a href="#catalog">Collection</a><a href="#admin">Administration</a></nav>
+      <span class="demo-label">A small store demo</span>
+    </header>
+
+    <main>
+      <section class="intro" aria-labelledby="page-title">
+        <p class="eyebrow">WELL CHOSEN. EVERY DAY.</p>
+        <h1 id="page-title">Simple things.<br>Good company.</h1>
+        <p>Useful essentials for your desk, your bag, and the day ahead.</p>
+      </section>
+
+      <div id="notice" class="notice" role="status" aria-live="polite" aria-atomic="true" hidden>
+        <p id="notice-message"></p>
+        <button id="dismiss-notice" class="dismiss-notice" type="button" aria-label="Dismiss notification">×</button>
+      </div>
+      <noscript><p>This demo needs JavaScript. The JSON API is available separately.</p></noscript>
+
+      <div class="shop-layout">
+        <section id="catalog" aria-labelledby="catalog-title">
+          <div class="section-heading"><div><p class="eyebrow">THE COLLECTION</p><h2 id="catalog-title">Everyday essentials</h2></div><button id="refresh" class="text-button" type="button">Refresh store</button></div>
+          <div id="products" class="product-grid" aria-live="polite"><p>Loading the collection…</p></div>
+          <p class="caption">Prices are in INR. Adding an item doesn’t reserve stock.</p>
+        </section>
+
+        <aside class="cart-panel" aria-labelledby="cart-title">
+          <div class="section-heading"><h2 id="cart-title">Your cart</h2><span id="cart-count" class="count">0</span></div>
+          <p id="cart-state" class="muted">A little room for good things.</p>
+          <div id="cart-items"><p class="empty-state">Choose an essential to get started.</p></div>
+          <div class="total-row"><span>Subtotal</span><strong id="cart-subtotal">₹0.00</strong></div>
+          <form id="checkout-form">
+            <label for="coupon-code">Coupon code <span class="muted">(optional)</span></label>
+            <input id="coupon-code" name="couponCode" autocomplete="off" placeholder="Enter your code" maxlength="128">
+            <button id="checkout" class="primary full-width" type="submit" disabled>Place order <span aria-hidden="true">↗</span></button>
+          </form>
+          <p class="caption">Demo checkout. No money is charged. Any discount is calculated when the order is placed.</p>
+          <button id="new-cart" class="text-button" type="button">Start a new cart</button>
+        </aside>
+      </div>
+
+      <section id="receipt" class="receipt panel" aria-labelledby="receipt-title" hidden>
+        <div class="section-heading"><div><p class="eyebrow">ALL SET</p><h2 id="receipt-title">Your order is placed.</h2></div><span class="status-pill">Confirmed</span></div>
+        <p id="order-id" class="caption identifier"></p>
+        <ul id="order-items" class="receipt-items"></ul>
+        <p id="order-coupon" class="muted"></p>
+        <dl class="receipt-totals"><div><dt>Subtotal</dt><dd id="order-subtotal"></dd></div><div><dt>Discount</dt><dd id="order-discount"></dd></div><div><dt>Total paid</dt><dd id="order-total"></dd></div></dl>
+      </section>
+
+      <section id="admin" class="admin-section" aria-labelledby="admin-title">
+        <div class="section-heading"><div><p class="eyebrow">BEHIND THE COUNTER</p><h2 id="admin-title">Store administration</h2></div><span class="caption">Demo access · no sign-in</span></div>
+        <p class="muted">Complete more orders to unlock a discount coupon. Refresh the report to see purchases and rewards.</p>
+        <div class="admin-actions"><button id="generate-coupon" class="secondary" type="button">Generate coupon</button><button id="refresh-report" class="text-button" type="button">Refresh report</button></div>
+        <div id="generated-coupon" class="coupon-result" hidden>
+          <div><span class="eyebrow">COUPON GENERATED</span><p id="coupon-description"></p><code id="generated-code"></code></div>
+          <div class="coupon-actions"><button id="copy-coupon" class="secondary" type="button">Copy code</button><button id="use-coupon" class="secondary" type="button">Use in cart</button></div>
+        </div>
+        <div class="report-grid" id="report">
+          <div><span>Placed orders</span><strong id="report-orders">—</strong></div><div><span>Gross revenue</span><strong id="report-gross">—</strong></div><div><span>Discounts granted</span><strong id="report-discounts">—</strong></div><div><span>Net revenue</span><strong id="report-net">—</strong></div>
+        </div>
+        <p id="report-coupons" class="muted">Loading reward counts…</p>
+        <details><summary>Purchased quantities by product</summary><ul id="report-quantities" class="quantity-list"></ul></details>
+      </section>
+    </main>
+    <footer>Everyday Supply <span>In-memory demo · restarting the server resets the store.</span></footer>
+  </div>
+
+  <template id="product-template"><article class="product-card"><div class="product-art"><svg aria-hidden="true"><use></use></svg><span class="stock-pill"></span></div><div class="product-info"><p class="product-category">EVERYDAY ESSENTIAL</p><h3></h3><div class="product-bottom"><strong class="product-price"></strong><button class="secondary add-product" type="button">Add to cart <span aria-hidden="true">+</span></button></div></div></article></template>
+  <template id="cart-item-template"><form class="cart-item"><div class="cart-item-heading"><strong class="item-name"></strong><button class="remove-item text-button" type="button">Remove</button></div><p class="item-price muted"></p><div class="quantity-controls"><input class="item-quantity" type="number" min="1" step="1" required><button class="update-item text-button" type="submit">Update</button><strong class="item-total"></strong></div><p class="availability caption" hidden>Not enough stock. Update the quantity or remove this item.</p></form></template>
+</body>
+</html>

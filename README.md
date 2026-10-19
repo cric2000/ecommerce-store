@@ -1,6 +1,7 @@
 # Checkout and rewards service
 
-Backend take-home assignment using Node.js, TypeScript, Express, and Vitest.
+Checkout and rewards take-home assignment using Node.js, TypeScript, Express,
+Vitest, and a small browser demo.
 The complete requirements are preserved in [ASSIGNMENT.md](ASSIGNMENT.md).
 The HTTP contract is in [API.md](API.md), and the design choices,
 invariants, scope, and actual AI use are in [DECISIONS.md](DECISIONS.md).
@@ -8,7 +9,7 @@ The final backend requirement comparison and verification evidence are in
 [AUDIT.md](AUDIT.md).
 Health, catalog listing, cart lifecycle, checkout with optional coupons, order
 retrieval, shared locking, key-based retries, coupon generation, and read-only
-administrative reporting are implemented.
+administrative reporting are implemented. The browser demo is served at `/`.
 
 ## Requirements and install
 
@@ -38,6 +39,52 @@ To compile and run the JavaScript build:
 npm run build
 npm start
 ```
+
+## Browser demo
+
+Open [http://localhost:3000/](http://localhost:3000/) after starting the server.
+Use the configured port if different. Both `npm run dev` and the compiled
+`npm start` serve the same HTML/CSS/JavaScript from `public/`; no separate frontend
+install or build is needed. Keep `public/` alongside `src/` and `dist/`.
+
+The demo shows the catalog, creates a cart on the first addition, and supports
+adding, changing quantities, removing items, and starting another cart. Checkout
+accepts an optional coupon and shows the saved order receipt with its discount
+and final total. The administration section generates eligible coupons and shows
+the read-only report, with purchased quantities labelled by product name.
+Successful checkout clears the cart panel and coupon input while keeping the
+saved order receipt visible. Administration has no authentication, and checkout
+does not charge real money.
+
+For a shorter reward walkthrough, start a fresh server with:
+
+```sh
+COUPON_INTERVAL=2 DISCOUNT_PERCENT=10 npm run dev
+```
+
+1. Purchase a notebook, then a pen in a new cart.
+2. Under **Store administration**, select **Generate coupon**.
+3. Add a mug to a new cart, select **Use in cart**, and place the order.
+4. The mug receipt shows ₹199.00 subtotal, ₹19.90 discount, and ₹179.10 total.
+   The report shows three orders, ₹349.00 gross, ₹19.90 discounts, and ₹329.10 net.
+
+All totals, discounts, stock decisions, and milestone eligibility come from the
+API. **Refresh store** reloads catalog/cart/report data; **Refresh report** only
+reads the report. Notifications use plain-language messages without backend error
+codes. They slide in from the right, stay at the top-right while scrolling, and
+can be dismissed with ×. **Copy code** copies the generated coupon;
+**Use in cart** fills it in and automatically starts a cart if the previous cart
+was checked out or no cart exists. A redeemed coupon shows **Already used**.
+A failed checkout with a definite client error allows correction. A timeout,
+network failure, or
+server error retains the original checkout key/body and enables **Retry checkout**;
+cart changes stay disabled until the result is confirmed.
+
+Cart/receipt/latest-coupon selection and the retry key live in page memory.
+Keep the page open while retrying an uncertain checkout. Reloading clears that
+browser state while the running server retains its records; this small demo has
+no saved-cart recovery or order history screen. Restarting the server resets all
+data. Development reloads also reset server data, so reload the page afterward.
 
 ## Health endpoint
 
@@ -159,12 +206,16 @@ returns 422 `AMOUNT_OUT_OF_RANGE` instead of an imprecise number.
 npm test
 npm run typecheck
 npm run build
+node --check public/app.js
+node --check public/client.js
 ```
 
 `npm run test:watch` runs Vitest in watch mode. HTTP tests start their own servers
 on available loopback ports and close them afterward; do not start the app first.
 The environment must permit binding local ports. Service/domain tests need no
 server, database, or credentials. CI and request logging are deferred.
+`npm run typecheck` checks TypeScript source/tests; the browser JavaScript has
+client behavior tests, syntax checks above, and manual browser verification.
 
 ## Run the API example
 
@@ -226,4 +277,5 @@ it does not coordinate independent instances or survive restart. Keys have no
 expiry while the process runs. Reporting reads committed state without taking the
 mutation lock or writing counters. API/operational review and the final backend
 audit are complete; review, commit, and submission handoff remain pending.
-All state is lost on restart. No frontend is included.
+All server state is lost on restart. The optional browser demo calls the same API;
+business rules remain in the backend.
