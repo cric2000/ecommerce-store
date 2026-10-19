@@ -52,7 +52,16 @@ server on an available loopback port and closes it after the test.
 
 ## Current scope
 
-Tasks 1–2 provide project tooling, app/server entry points, the health endpoint,
-and the planned API contract/design documentation. Products, seed data, carts,
-checkout, coupons, reporting, and their business tests are pending later tasks.
-No frontend is included.
+Tasks 1–3 provide project tooling, app/server entry points, the health endpoint,
+the planned API contract/design documentation, domain types, shared validation
+and errors, and exact integer-paise money helpers with focused tests.
+
+Domain code lives in `src/domain/`: `types.ts` defines stored records and response
+shapes, `validation.ts` rejects invalid quantities/percentages/paise, `errors.ts`
+provides structured domain failures, and `money.ts` performs exact arithmetic
+with `bigint` intermediates and safe numeric outputs. Rupee conversion takes a
+decimal string rather than a floating-point number; formatted rupees are strings.
+
+Product seed data, store/services, cart lifecycle, checkout, coupons, reporting,
+their routes, and flow/concurrency tests are pending later tasks. No frontend is
+included. The health route remains the only implemented HTTP endpoint.

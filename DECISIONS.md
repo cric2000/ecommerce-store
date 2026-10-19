@@ -3,10 +3,11 @@
 ## Status and scope
 
 This document records the proposed contract for the remaining backend tasks.
-Only project tooling, application/server entry points, and `GET /health` are
-implemented. Task 2 adds documentation, not business logic. The invariants and
-strategies below are design commitments to implement and test, not claims that
-the current service enforces them. See [API.md](API.md) for the HTTP contract.
+Project tooling, application/server entry points, `GET /health`, domain types,
+quantity/money validation, and exact money helpers are implemented. Commerce
+routes and state transitions remain pending. The invariants and strategies below
+describe the target behavior; the current service does not yet enforce the full
+set. See [API.md](API.md) for the HTTP contract.
 
 The design keeps a focused single-process service with routes, services, domain
 types, and an in-memory store. It prioritizes correctness, invariants, focused
@@ -51,8 +52,8 @@ the cart's original price changes; or use current prices and revalidate stock.
 Check stock on add/update without reserving it. Checkout checks it again. Save an
 immutable order snapshot using the prices accepted at checkout.
 
-**Why:** This avoids reservation expiry and stale-price state within the timebox,
-while making the cart useful and orders explainable later.
+**Why:** This avoids reservation expiry and stale-price state, while making the
+cart useful and orders explainable later.
 
 **Consequences:** A previously valid cart can become unpurchasable or cost more.
 Views retain requested quantities even if stock falls; each line exposes current
@@ -200,6 +201,15 @@ means invalid input, not item removal. Report accumulation uses exact
 intermediates too and reports a range error if a monetary total or purchased
 quantity aggregate would be unsafe.
 
+The implemented helpers in `src/domain/money.ts` cover decimal-string conversion
+in both directions, line multiplication, sums, percentage discounts, and final
+totals. Input conversion accepts whole rupees or one/two fractional digits;
+leading zeros are allowed. Whitespace, signs, exponents, missing whole digits,
+and excessive decimal precision return `INVALID_REQUEST`. Unsafe monetary inputs
+or calculated values return `AMOUNT_OUT_OF_RANGE`; a discount larger than the
+subtotal is rejected rather than clamped. When no coupon is applied, the
+discount is zero; an actual percentage must be 1–100.
+
 ## Decision: Successful checkout is payment success
 
 **Context:** The assignment requires no real payment integration.
@@ -268,11 +278,23 @@ can change; product IDs remain the aggregation key.
 
 **Implemented now:** Express health route; separate app/server; strict TypeScript;
 Vitest HTTP health test; npm scripts/lockfile; installation/run instructions; this
-design and the planned API contract.
+design and the planned API contract; domain types for products, stored carts,
+current-price cart views, coupons, order snapshots, and reports; shared domain
+errors and quantity/percentage/paise validators; exact money helpers and focused
+tests for their validation, rounding, and range boundaries.
 
-**Required and pending:** Domain types, input validation and money helpers; at
-least five seeded products including limited inventory; full cart lifecycle;
-order snapshots; locked checkout; retry handling; configurable coupon milestones,
+`Paise` is a number alias rather than a branded type. Runtime helpers validate
+its range and integer rules. Domain properties/arrays are `readonly`, and cart
+and coupon types link each status to its nullable/non-null order ID. These
+compile-time safeguards do not freeze objects, validate raw JSON, or implement
+store transactions. Stored cart items contain IDs/quantities; current prices
+belong to cart views and purchase prices belong to order snapshots. Domain errors
+currently carry codes/messages/details only; HTTP status mapping and shared
+Express error handling are pending with the routes.
+
+**Required and pending:** HTTP request validation; at least five seeded products
+including limited inventory; full cart lifecycle; order snapshots; locked
+checkout; retry handling; configurable coupon milestones,
 generation/redemption; reconciled admin reports; business/API tests; final
 documentation and assignment audit. In particular, none of the concurrency,
 idempotency, or coupon guarantees are implemented yet.
@@ -288,8 +310,8 @@ failed checkout preserving a coupon; and read-only report reconciliation. Run
 coordination, authentication/authorization, real payments, reservations, coupon
 ownership/expiry/stacking, taxes/shipping, refunds/cancellations, pagination,
 idempotency retention policies, deployment infrastructure, and load testing.
-Simple CI/logging may be considered during Task 9 if time allows. A frontend is
-optional and only considered after backend requirements are sound.
+Simple CI/logging may be considered during Task 9. A frontend is optional and
+only considered after backend requirements are sound.
 
 **Submission still pending:** Complete/test required backend behavior; make these
 documents match actual code; verify setup/run/seed/check instructions from a
@@ -320,31 +342,32 @@ above. None of these production properties comes from the in-process mutex.
 
 ## Actual AI use and human review
 
-Codex read the assignment, generated the Task 1 tooling/app/test scaffold, ran
-checks, and drafted this Task 2 design/API documentation. Checks included a real
-HTTP health request; sandbox restrictions required permitted reruns of dependency
-installation and local HTTP tests. Passing a health test is not evidence that
-commerce invariants work.
+I used Codex to scaffold the project tooling, Express app, and health test; draft
+the design/API documentation; and implement the domain types, validation, money
+helpers, and focused tests. I also used it to run checks, including real HTTP
+health requests and money/validation tests. Sandbox restrictions required
+permitted reruns of dependency installation and local HTTP tests. These checks
+do not establish the pending checkout/concurrency/coupon guarantees.
 
-A concrete human correction: Codex initially added explicit validation of the
-`PORT` environment variable in `src/server.ts`. I rejected that defensive check
-as unnecessary for this app and removed it. I also added the comment explaining
-port 0 in the health test. Task 2 preserves both edits. This correction
-illustrates keeping scope proportionate rather than accepting every generated
-guard. It does not mean business input validation or coupon configuration
-validation should be omitted.
+The initial generated server included explicit validation of the `PORT`
+environment variable in `src/server.ts`. I rejected that defensive check as
+unnecessary for this app and removed it. I also added the comment explaining
+port 0 in the health test. Both edits remain in place. This correction illustrates
+keeping scope proportionate rather than accepting every generated guard. It does
+not mean business input validation or coupon configuration validation should be
+omitted.
 
 I review and commit each task and remain responsible for every submitted line
-and for explaining or modifying it. This section records actual work; it does not
-claim independent authorship or invent additional rejected AI output. No private
-AI transcripts are included. Update this account as later work occurs.
+and for explaining or modifying it. This account records actual AI assistance,
+including the correction above, without private transcripts.
 
 ## First priorities with another two hours
 
-After finishing the required backend, first examine the transaction/idempotency
-boundary with failure-injection and coordinated competing HTTP requests: missing
-responses, repeated keys with different identities, coupon contention, and state
-unchanged after each failure. Next verify arithmetic/report reconciliation at
-rounding and safe-integer boundaries. Use the remaining time to assess a durable
-database transaction design and document crash/restart behavior. Prioritize these
-over a larger frontend or deployment setup; update priorities based on audit gaps.
+After finishing the required backend, I would first examine the
+transaction/idempotency boundary with failure-injection and coordinated competing
+HTTP requests: missing responses, repeated keys with different identities, coupon
+contention, and state unchanged after each failure. I would next verify
+arithmetic/report reconciliation at rounding and safe-integer boundaries, then
+assess a durable database transaction design and crash/restart behavior. I would
+prioritize these over a larger frontend or deployment setup, adjusting priorities
+based on audit gaps.
