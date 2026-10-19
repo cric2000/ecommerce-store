@@ -12,10 +12,10 @@ import type { InMemoryStore, StoreState } from '../store/memory.js';
 export class CartService {
   constructor(private readonly store: InMemoryStore) {}
 
-  createCart(input: unknown): CartView {
+  async createCart(input: unknown): Promise<CartView> {
     validateObject(input, []);
     const cart: Cart = { id: randomUUID(), status: 'active', orderId: null, items: [] };
-    return this.saveCart(this.store.state, cart);
+    return this.store.mutex.runExclusive(() => this.saveCart(this.store.state, cart));
   }
 
   getCart(cartId: string): CartView {
@@ -23,45 +23,51 @@ export class CartService {
     return this.toView(this.findCart(state, cartId), state);
   }
 
-  addItem(cartId: string, input: unknown): CartView {
+  async addItem(cartId: string, input: unknown): Promise<CartView> {
     const body = validateObject(input, ['productId', 'quantity']);
     const productId = validateProductId(body.productId);
     const quantity = validateQuantity(body.quantity);
-    const state = this.store.state;
-    const cart = this.activeCart(state, cartId);
-    const product = this.findProduct(state, productId);
-    const existing = cart.items.find((item) => item.productId === productId);
-    const nextQuantity = validateQuantity((existing?.quantity ?? 0) + quantity);
-    this.checkStock(product, nextQuantity);
+    return this.store.mutex.runExclusive(() => {
+      const state = this.store.state;
+      const cart = this.activeCart(state, cartId);
+      const product = this.findProduct(state, productId);
+      const existing = cart.items.find((item) => item.productId === productId);
+      const nextQuantity = validateQuantity((existing?.quantity ?? 0) + quantity);
+      this.checkStock(product, nextQuantity);
 
-    const items = [
-      ...cart.items.filter((item) => item.productId !== productId),
-      { productId, quantity: nextQuantity },
-    ];
-    return this.saveCart(state, { ...cart, items });
+      const items = [
+        ...cart.items.filter((item) => item.productId !== productId),
+        { productId, quantity: nextQuantity },
+      ];
+      return this.saveCart(state, { ...cart, items });
+    });
   }
 
-  updateItem(cartId: string, productId: string, input: unknown): CartView {
+  async updateItem(cartId: string, productId: string, input: unknown): Promise<CartView> {
     const body = validateObject(input, ['quantity']);
     const quantity = validateQuantity(body.quantity);
-    const state = this.store.state;
-    const cart = this.activeCart(state, cartId);
-    const product = this.findProduct(state, productId);
-    this.requireItem(cart, productId);
-    this.checkStock(product, quantity);
+    return this.store.mutex.runExclusive(() => {
+      const state = this.store.state;
+      const cart = this.activeCart(state, cartId);
+      const product = this.findProduct(state, productId);
+      this.requireItem(cart, productId);
+      this.checkStock(product, quantity);
 
-    const items = cart.items.map((item) => (
-      item.productId === productId ? { productId, quantity } : item
-    ));
-    return this.saveCart(state, { ...cart, items });
+      const items = cart.items.map((item) => (
+        item.productId === productId ? { productId, quantity } : item
+      ));
+      return this.saveCart(state, { ...cart, items });
+    });
   }
 
-  removeItem(cartId: string, productId: string): CartView {
-    const state = this.store.state;
-    const cart = this.activeCart(state, cartId);
-    this.requireItem(cart, productId);
-    const items = cart.items.filter((item) => item.productId !== productId);
-    return this.saveCart(state, { ...cart, items });
+  async removeItem(cartId: string, productId: string): Promise<CartView> {
+    return this.store.mutex.runExclusive(() => {
+      const state = this.store.state;
+      const cart = this.activeCart(state, cartId);
+      this.requireItem(cart, productId);
+      const items = cart.items.filter((item) => item.productId !== productId);
+      return this.saveCart(state, { ...cart, items });
+    });
   }
 
   private findCart(state: StoreState, cartId: string): Cart {

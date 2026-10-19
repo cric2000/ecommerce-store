@@ -21,21 +21,21 @@ function replaceItems(store: InMemoryStore, cartId: string, items: readonly Cart
   store.state = { ...store.state, carts };
 }
 
-function expectUnchanged(store: InMemoryStore, operation: () => unknown, code: string) {
+async function expectUnchanged(store: InMemoryStore, operation: () => unknown, code: string) {
   const original = store.state;
   const before = structuredClone(original);
-  expect(operation).toThrow(expect.objectContaining({ code }));
+  await expect(operation()).rejects.toThrow(expect.objectContaining({ code }));
   expect(store.state).toBe(original);
   expect(store.state).toEqual(before);
 }
 
 describe('checkout and order snapshots', () => {
-  test('places an order, deducts each quantity once, and closes the cart', () => {
+  test('places an order, deducts each quantity once, and closes the cart', async () => {
     const { store, carts, orders } = setup();
-    const cart = carts.createCart({});
-    carts.addItem(cart.id, { productId: 'product-2', quantity: 3 });
-    carts.addItem(cart.id, { productId: 'product-1', quantity: 2 });
-    const order = orders.checkout(cart.id, {});
+    const cart = await carts.createCart({});
+    await carts.addItem(cart.id, { productId: 'product-2', quantity: 3 });
+    await carts.addItem(cart.id, { productId: 'product-1', quantity: 2 });
+    const order = await orders.checkout(cart.id, {}, 'checkout-key');
 
     expect(order).toMatchObject({
       cartId: cart.id, status: 'placed', currency: 'INR',
@@ -54,107 +54,107 @@ describe('checkout and order snapshots', () => {
     expect(carts.getCart(cart.id)).toMatchObject({ status: 'checked_out', orderId: order.id });
   });
 
-  test('a successful cart cannot be checked out again or edited', () => {
+  test('a successful cart cannot be checked out again or edited', async () => {
     const { store, carts, orders } = setup();
-    const cart = carts.createCart({});
-    carts.addItem(cart.id, { productId: 'product-5', quantity: 1 });
-    orders.checkout(cart.id, {});
+    const cart = await carts.createCart({});
+    await carts.addItem(cart.id, { productId: 'product-5', quantity: 1 });
+    await orders.checkout(cart.id, {}, 'checkout-key');
 
     for (const operation of [
-      () => orders.checkout(cart.id, {}),
+      () => orders.checkout(cart.id, {}, 'fresh-key'),
       () => carts.addItem(cart.id, { productId: 'product-1', quantity: 1 }),
       () => carts.updateItem(cart.id, 'product-5', { quantity: 1 }),
       () => carts.removeItem(cart.id, 'product-5'),
     ]) {
-      expectUnchanged(store, operation, 'CART_ALREADY_CHECKED_OUT');
+      await expectUnchanged(store, operation, 'CART_ALREADY_CHECKED_OUT');
     }
     expect(store.state.orders.size).toBe(1);
     expect(store.state.products.get('product-5')!.availableInventory).toBe(0);
   });
 
-  test('missing and empty carts create no orders or inventory changes', () => {
+  test('missing and empty carts create no orders or inventory changes', async () => {
     const { store, carts, orders } = setup();
-    const empty = carts.createCart({});
-    expectUnchanged(store, () => orders.checkout('missing', {}), 'CART_NOT_FOUND');
-    expectUnchanged(store, () => orders.checkout(empty.id, {}), 'EMPTY_CART');
+    const empty = await carts.createCart({});
+    await expectUnchanged(store, () => orders.checkout('missing', {}, 'checkout-key'), 'CART_NOT_FOUND');
+    await expectUnchanged(store, () => orders.checkout(empty.id, {}, 'checkout-key'), 'EMPTY_CART');
     expect(() => orders.getOrder('missing')).toThrow(expect.objectContaining({ code: 'ORDER_NOT_FOUND' }));
   });
 
   test.each([null, [], { couponCode: 'not-supported-yet' }, { totalPaise: 0 }])(
     'rejects unsupported checkout body %j before changing state',
-    (body) => {
+    async (body) => {
       const { store, carts, orders } = setup();
-      const cart = carts.createCart({});
-      carts.addItem(cart.id, { productId: 'product-1', quantity: 1 });
-      expectUnchanged(store, () => orders.checkout(cart.id, body), 'INVALID_REQUEST');
+      const cart = await carts.createCart({});
+      await carts.addItem(cart.id, { productId: 'product-1', quantity: 1 });
+      await expectUnchanged(store, () => orders.checkout(cart.id, body, 'checkout-key'), 'INVALID_REQUEST');
     },
   );
 
   test.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
     'revalidates invalid stored quantity %j before committing any line',
-    (quantity) => {
+    async (quantity) => {
       const { store, carts, orders } = setup();
-      const cart = carts.createCart({});
+      const cart = await carts.createCart({});
       replaceItems(store, cart.id, [
         { productId: 'product-1', quantity: 1 },
         { productId: 'product-2', quantity },
       ]);
-      expectUnchanged(store, () => orders.checkout(cart.id, {}), 'INVALID_QUANTITY');
+      await expectUnchanged(store, () => orders.checkout(cart.id, {}, 'checkout-key'), 'INVALID_QUANTITY');
     },
   );
 
-  test('rejects duplicate product lines rather than accepting an invalid stored cart', () => {
+  test('rejects duplicate product lines rather than accepting an invalid stored cart', async () => {
     const { store, carts, orders } = setup();
-    const cart = carts.createCart({});
+    const cart = await carts.createCart({});
     replaceItems(store, cart.id, [
       { productId: 'product-1', quantity: 1 },
       { productId: 'product-1', quantity: 1 },
     ]);
-    expectUnchanged(store, () => orders.checkout(cart.id, {}), 'INVALID_REQUEST');
+    await expectUnchanged(store, () => orders.checkout(cart.id, {}, 'checkout-key'), 'INVALID_REQUEST');
   });
 
-  test('rechecks stock and leaves an earlier valid line unchanged when a later line fails', () => {
+  test('rechecks stock and leaves an earlier valid line unchanged when a later line fails', async () => {
     const { store, carts, orders } = setup();
-    const cart = carts.createCart({});
-    carts.addItem(cart.id, { productId: 'product-1', quantity: 2 });
-    carts.addItem(cart.id, { productId: 'product-5', quantity: 1 });
+    const cart = await carts.createCart({});
+    await carts.addItem(cart.id, { productId: 'product-1', quantity: 2 });
+    await carts.addItem(cart.id, { productId: 'product-5', quantity: 1 });
     changeProduct(store, 'product-5', { availableInventory: 0 });
 
-    expectUnchanged(store, () => orders.checkout(cart.id, {}), 'INSUFFICIENT_STOCK');
+    await expectUnchanged(store, () => orders.checkout(cart.id, {}, 'checkout-key'), 'INSUFFICIENT_STOCK');
     expect(store.state.products.get('product-1')!.availableInventory).toBe(50);
     expect(store.state.carts.get(cart.id)!.status).toBe('active');
     expect(store.state.orders.size).toBe(0);
   });
 
-  test('a product disappearing after add fails without partially deducting other products', () => {
+  test('a product disappearing after add fails without partially deducting other products', async () => {
     const { store, carts, orders } = setup();
-    const cart = carts.createCart({});
-    carts.addItem(cart.id, { productId: 'product-1', quantity: 1 });
-    carts.addItem(cart.id, { productId: 'product-2', quantity: 1 });
+    const cart = await carts.createCart({});
+    await carts.addItem(cart.id, { productId: 'product-1', quantity: 1 });
+    await carts.addItem(cart.id, { productId: 'product-2', quantity: 1 });
     const products = new Map(store.state.products);
     products.delete('product-2');
     store.state = { ...store.state, products };
-    expectUnchanged(store, () => orders.checkout(cart.id, {}), 'PRODUCT_NOT_FOUND');
+    await expectUnchanged(store, () => orders.checkout(cart.id, {}, 'checkout-key'), 'PRODUCT_NOT_FOUND');
   });
 
   test.each(['line', 'subtotal'])(
     'rejects %s overflow after a price change without changing state',
-    (scenario) => {
+    async (scenario) => {
       const { store, carts, orders } = setup();
-      const cart = carts.createCart({});
-      carts.addItem(cart.id, { productId: 'product-1', quantity: scenario === 'line' ? 2 : 1 });
-      carts.addItem(cart.id, { productId: 'product-2', quantity: 1 });
+      const cart = await carts.createCart({});
+      await carts.addItem(cart.id, { productId: 'product-1', quantity: scenario === 'line' ? 2 : 1 });
+      await carts.addItem(cart.id, { productId: 'product-2', quantity: 1 });
       changeProduct(store, 'product-1', { unitPricePaise: Number.MAX_SAFE_INTEGER });
-      expectUnchanged(store, () => orders.checkout(cart.id, {}), 'AMOUNT_OUT_OF_RANGE');
+      await expectUnchanged(store, () => orders.checkout(cart.id, {}, 'checkout-key'), 'AMOUNT_OUT_OF_RANGE');
     },
   );
 
-  test('uses the price/name at checkout and preserves the snapshot after later catalog changes or deletion', () => {
+  test('uses the price/name at checkout and preserves the snapshot after later catalog changes or deletion', async () => {
     const { store, carts, orders } = setup();
-    const cart = carts.createCart({});
-    carts.addItem(cart.id, { productId: 'product-1', quantity: 2 });
+    const cart = await carts.createCart({});
+    await carts.addItem(cart.id, { productId: 'product-1', quantity: 2 });
     changeProduct(store, 'product-1', { name: 'Updated notebook', unitPricePaise: 7500 });
-    const order = orders.checkout(cart.id, {});
+    const order = await orders.checkout(cart.id, {}, 'checkout-key');
     expect(order.items[0]).toEqual({
       productId: 'product-1', name: 'Updated notebook', quantity: 2,
       unitPricePaise: 7500, lineTotalPaise: 15000,
@@ -169,11 +169,11 @@ describe('checkout and order snapshots', () => {
     expect(orders.getOrder(order.id)).toEqual(order);
   });
 
-  test('checkout and retrieval return detached copies of the stored order', () => {
+  test('checkout and retrieval return detached copies of the stored order', async () => {
     const { carts, orders } = setup();
-    const cart = carts.createCart({});
-    carts.addItem(cart.id, { productId: 'product-1', quantity: 1 });
-    const created = orders.checkout(cart.id, {});
+    const cart = await carts.createCart({});
+    await carts.addItem(cart.id, { productId: 'product-1', quantity: 1 });
+    const created = await orders.checkout(cart.id, {}, 'checkout-key');
     const original = structuredClone(created);
     (created.items[0] as { name: string }).name = 'Changed by caller';
     const fetched = orders.getOrder(created.id);
@@ -182,12 +182,12 @@ describe('checkout and order snapshots', () => {
     expect(orders.getOrder(created.id)).toEqual(original);
   });
 
-  test('zero-priced items produce a valid zero-total placed order', () => {
+  test('zero-priced items produce a valid zero-total placed order', async () => {
     const { store, carts, orders } = setup();
     changeProduct(store, 'product-1', { unitPricePaise: 0 });
-    const cart = carts.createCart({});
-    carts.addItem(cart.id, { productId: 'product-1', quantity: 1 });
-    expect(orders.checkout(cart.id, {})).toMatchObject({
+    const cart = await carts.createCart({});
+    await carts.addItem(cart.id, { productId: 'product-1', quantity: 1 });
+    expect(await orders.checkout(cart.id, {}, 'checkout-key')).toMatchObject({
       status: 'placed', subtotalPaise: 0, discountPaise: 0, totalPaise: 0,
     });
     expect(store.state.orders.size).toBe(1);

@@ -1,8 +1,8 @@
 # HTTP API contract
 
 **Status:** Health, catalog listing, cart lifecycle, checkout without coupons,
-order retrieval, and shared JSON error handling are implemented. Key-based
-retries, the shared mutation lock, coupons, and reporting remain pending. See
+order retrieval, shared mutation locking, key-based retries, and JSON error
+handling are implemented. Coupons and reporting remain pending. See
 endpoint statuses below and [DECISIONS.md](DECISIONS.md) for the design choices.
 
 ## Common conventions
@@ -28,15 +28,14 @@ endpoint statuses below and [DECISIONS.md](DECISIONS.md) for the design choices.
 - Planned for Task 7: coupon codes are nonblank strings of at most 128 characters,
   matched exactly, without trimming or case conversion. `null` is not a valid
   coupon code.
-- Planned for Task 6: `Idempotency-Key` is required only on checkout. Use one value
+- `Idempotency-Key` is required only on checkout. Use one value
   matching `[A-Za-z0-9._:-]{1,128}` (for example a UUID); missing, repeated, or invalid key
   headers return 400. Keys are global within the running store, not scoped to carts.
-  Current checkout does not require or process keys and cannot replay a result.
 - Array ordering: products/cart lines/report product quantities sort by product ID;
   orders preserve the line ordering accepted at checkout.
 - Business errors use the common envelope below. When multiple business checks
-  fail, clients should not depend on a particular error winning. In the planned
-  retry flow, successful key lookup precedes live cart/inventory/coupon validation.
+  fail, clients should not depend on a particular error winning. Successful key
+  lookup precedes live cart/inventory validation, after request-shape validation.
 
 ## Endpoint index
 
@@ -49,7 +48,7 @@ endpoint statuses below and [DECISIONS.md](DECISIONS.md) for the design choices.
 | `POST /carts/:cartId/items` | Add/increment item | 200 | No | Implemented |
 | `PATCH /carts/:cartId/items/:productId` | Set item quantity | 200 | No | Implemented |
 | `DELETE /carts/:cartId/items/:productId` | Remove item | 200 | No | Implemented |
-| `POST /carts/:cartId/checkout` | Place order (coupons planned) | 201 (replay planned) | No | Implemented without coupons/replay |
+| `POST /carts/:cartId/checkout` | Place order (coupons planned) | 201 (also replay) | No | Implemented without coupons |
 | `GET /orders/:orderId` | Read purchase snapshot | 200 | No | Implemented |
 | `POST /admin/coupons` | Generate one eligible coupon | 201 | Yes | Planned |
 | `GET /admin/report` | Reconciled read-only report | 200 | Yes | Planned |
@@ -205,8 +204,8 @@ generic message without exception details.
 Malformed JSON/shape, media-type, range, and unexpected errors apply wherever
 relevant in addition to the important endpoint-specific errors listed below.
 Implemented routes normalize domain failures, malformed JSON, oversized bodies,
-and unknown routes into this envelope. Key/coupon-specific errors remain planned
-with their extensions.
+and unknown routes into this envelope. Coupon-specific errors remain planned
+with their extension.
 
 ## GET /health
 
@@ -284,71 +283,65 @@ Repeating removal returns `CART_ITEM_NOT_FOUND`, not a second success.
 
 ## POST /carts/:cartId/checkout
 
-**Implemented without coupons or key-based replay. Non-administrative.**
+**Implemented without coupons. Non-administrative.**
 
-Current request body: `{}` with `Content-Type: application/json`. No special
-header is required. Coupon/extra fields return `INVALID_REQUEST` (400).
-Revalidate a nonempty active cart, positive safe integer quantities, unique
-product lines, current catalog prices, and current stock. Prepare the order
-snapshot and all stock/cart changes before publishing them together. Failure
-before commit changes none of those records.
+Request body: `{}` with `Content-Type: application/json`. Required header:
+`Idempotency-Key: 0ddf3c21-f738-4ad6-90d3-3e414de061e6`.
+Exactly one key header is allowed, even when duplicate values would be identical.
+Coupon/extra fields currently return `INVALID_REQUEST` (400).
+
+Inside the shared store mutex, check for a successful key first, then revalidate
+a nonempty active cart, positive safe integer quantities, unique product lines,
+current catalog prices, and current stock. Prepare the order snapshot, inventory
+deductions, closed cart, and successful key record before publishing them together.
+Failure before commit changes none of those records and does not bind the key.
 
 Response: **201 Created**, an Order with `coupon: null`, `discountPaise: 0`, and
 `totalPaise` equal to the subtotal. Include `Location: /orders/<returned-id>`.
 Successful placement counts as payment success; no payment service is called.
-The cart remains readable and exposes the order ID but cannot be edited or
-checked out again. A repeat currently returns `CART_ALREADY_CHECKED_OUT` (409)
-rather than replaying the order, regardless of an `Idempotency-Key` header.
+The cart remains readable with its order ID and cannot be edited or used for
+another order.
 
-Current important errors: `INVALID_REQUEST`/`INVALID_QUANTITY` (400),
-`CART_NOT_FOUND`/`PRODUCT_NOT_FOUND` (404), `EMPTY_CART`,
-`CART_ALREADY_CHECKED_OUT`, or `INSUFFICIENT_STOCK` (409), and
-`AMOUNT_OUT_OF_RANGE` (422). Common JSON/media-type errors also apply.
+Retry rules:
 
-### Planned checkout extensions (Tasks 6–7)
+- A successful key with the same cart ID and validated `{}` body returns the
+  original 201, Order body, and Location. JSON whitespace does not change identity.
+  Replays create no order and change no inventory or key records, even if the
+  catalog has changed or a product has disappeared since the original purchase.
+- A successful key with a different cart ID returns `IDEMPOTENCY_KEY_CONFLICT`
+  (409). Keys are global within the store, not per-cart.
+- Failed attempts leave the key unbound. A client may fix the cart or use the key
+  for a different request until it first succeeds. Cart contents are not part of
+  the fingerprint: before success, checkout uses the cart's latest contents.
+- A checked-out cart with a fresh valid key returns `CART_ALREADY_CHECKED_OUT`
+  (409), without binding that fresh key.
+- Concurrent matching retries return one and the same order. Two carts competing
+  for the last available item cannot both purchase it. Cart edits share the same
+  lock, so they cannot overwrite checkout's state with a stale copy.
+- Keys and orders have no expiry during the store's lifetime. A restart loses
+  all state, including keys. This is single-process coordination; independent
+  instances/stores are not coordinated. See DECISIONS.md for database evolution.
 
-The following key, replay, and coupon behavior is the target contract; it is not
-implemented yet. Required header:
-`Idempotency-Key: 0ddf3c21-f738-4ad6-90d3-3e414de061e6`.
+Important errors: `INVALID_REQUEST`/`INVALID_QUANTITY`/`INVALID_IDEMPOTENCY_KEY`
+(400), `CART_NOT_FOUND`/`PRODUCT_NOT_FOUND` (404), `EMPTY_CART`,
+`CART_ALREADY_CHECKED_OUT`, `INSUFFICIENT_STOCK`, or `IDEMPOTENCY_KEY_CONFLICT`
+(409), and `AMOUNT_OUT_OF_RANGE` (422). Common JSON/media-type errors apply.
+Request/body validation precedes key lookup, so malformed input is not replayed.
 
-Request body without a coupon: `{}`. With a coupon:
+### Planned coupon extension (Task 7)
+
+Checkout will accept an optional `couponCode`:
 
 ```json
 { "couponCode": "coupon-5" }
 ```
 
-At most one coupon is accepted; arrays/extra properties/null codes are invalid.
-Revalidate the active cart, nonempty items, current product prices/stock, and any
-coupon. Stage all calculations/state changes; create an immutable order, reduce
-inventory, close the cart, redeem the coupon if provided, and remember the
-successful key as one commit. Failure before commit changes none of these
-records. If the commit succeeds but the response is lost, retry with the same
-key to retrieve the committed order.
-
-Response: **201 Created**, an Order, with `Location: /orders/<returned-id>`.
-
-Retry rules:
-
-- The same successful key and normalized `(cartId, couponCode-or-absent)` request
-  returns the original 201, Order body, and Location. It creates no order and
-  changes no stock/coupon state, even if current catalog or cart state differs.
-- A successful key with a different cart ID or coupon returns
-  `IDEMPOTENCY_KEY_CONFLICT` (409). JSON formatting does not change identity.
-- Failures do not bind/cache the key. Fixing a failed cart and retrying the same
-  key uses the cart's latest state.
-- A checked-out cart with a fresh key returns `CART_ALREADY_CHECKED_OUT` (409).
-- Concurrent identical successful retries return one and the same order. Two
-  carts competing for remaining stock or one coupon cannot both consume it.
-- Keys/results last only until process restart. Retries of cart creation or
-  administrative generation do not receive checkout's idempotency guarantees.
-
-Important errors: `INVALID_REQUEST`/`INVALID_IDEMPOTENCY_KEY` (400);
-`CART_NOT_FOUND`/`PRODUCT_NOT_FOUND` (404); `EMPTY_CART`,
-`CART_ALREADY_CHECKED_OUT`, `INSUFFICIENT_STOCK`, `INVALID_COUPON`,
-`COUPON_ALREADY_REDEEMED`, or `IDEMPOTENCY_KEY_CONFLICT` (409).
-
-Task 5 implements checkout without coupons. Task 6 adds the key and
-competing-operation guarantees; Task 7 adds coupon acceptance.
+That code will participate in the normalized request identity together with the
+cart ID. The same successful key with a different coupon will conflict. Coupon
+validation/redemption will join the same locked state transition, so a failed
+checkout cannot consume a coupon and two checkouts cannot redeem one coupon.
+The planned coupon errors are `INVALID_COUPON` and `COUPON_ALREADY_REDEEMED`
+(409). Coupon acceptance and those guarantees are not implemented yet.
 
 ## GET /orders/:orderId
 

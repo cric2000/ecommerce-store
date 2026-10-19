@@ -1,6 +1,20 @@
 import { DomainError } from './errors.js';
 import type { Paise } from './types.js';
 
+export function validateIdempotencyKey(value: unknown): string {
+  if (
+    typeof value !== 'string' || value.length < 1 || value.length > 128 ||
+    /[^A-Za-z0-9._:-]/.test(value)
+  ) {
+    throw new DomainError(
+      'INVALID_IDEMPOTENCY_KEY',
+      'Checkout requires one Idempotency-Key of 1–128 letters, digits, dots, underscores, colons, or hyphens',
+      { field: 'Idempotency-Key' },
+    );
+  }
+  return value;
+}
+
 export function validateObject(
   value: unknown,
   allowedFields: readonly string[],

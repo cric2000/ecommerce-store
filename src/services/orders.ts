@@ -2,15 +2,27 @@ import { randomUUID } from 'node:crypto';
 import { DomainError } from '../domain/errors.js';
 import { calculateLineTotal, calculateTotal, sumPaise } from '../domain/money.js';
 import type { Order, OrderItem } from '../domain/types.js';
-import { validateObject, validateQuantity } from '../domain/validation.js';
+import { validateIdempotencyKey, validateObject, validateQuantity } from '../domain/validation.js';
 import type { InMemoryStore } from '../store/memory.js';
 
 export class OrderService {
   constructor(private readonly store: InMemoryStore) {}
 
-  checkout(cartId: string, input: unknown): Order {
+  async checkout(cartId: string, input: unknown, keyInput: unknown): Promise<Order> {
     validateObject(input, []);
+    const key = validateIdempotencyKey(keyInput);
+    return this.store.mutex.runExclusive(() => this.placeOrder(cartId, key));
+  }
+
+  private placeOrder(cartId: string, key: string): Order {
     const state = this.store.state;
+    const previous = state.checkoutKeys.get(key);
+    if (previous) {
+      if (previous.cartId !== cartId) {
+        throw new DomainError('IDEMPOTENCY_KEY_CONFLICT', 'Key already belongs to a different checkout request');
+      }
+      return this.getOrder(previous.orderId);
+    }
     const cart = state.carts.get(cartId);
     if (!cart) throw new DomainError('CART_NOT_FOUND', 'Cart was not found');
     if (cart.status !== 'active') {
@@ -79,9 +91,11 @@ export class OrderService {
     const carts = new Map(state.carts);
     carts.set(cart.id, { ...cart, status: 'checked_out', orderId: order.id });
     const response = structuredClone(order);
+    const checkoutKeys = new Map(state.checkoutKeys);
+    checkoutKeys.set(key, { cartId, orderId: order.id });
 
     // Nothing touches live records until all validation and response preparation succeed.
-    this.store.state = { ...state, products, carts, orders };
+    this.store.state = { ...state, products, carts, orders, checkoutKeys };
     return response;
   }
 

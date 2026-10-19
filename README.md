@@ -5,7 +5,8 @@ The complete requirements are preserved in [ASSIGNMENT.md](ASSIGNMENT.md).
 The planned HTTP contract is in [API.md](API.md), and the design choices,
 invariants, scope, and actual AI use are in [DECISIONS.md](DECISIONS.md).
 Health, catalog listing, cart lifecycle, checkout without coupons, and order
-retrieval are implemented. Key-based retries, coupons, and reporting are planned.
+retrieval, shared mutation locking, and key-based retries are implemented.
+Coupons and reporting are planned.
 
 ## Requirements and install
 
@@ -72,7 +73,7 @@ lines `isAvailable: false`. Checkout rechecks current prices and stock.
 After adding items, replace `CART_ID` in this request with the returned cart ID:
 
 ```sh
-curl -i -H 'Content-Type: application/json' -d '{}' http://localhost:3000/carts/CART_ID/checkout
+curl -i -H 'Content-Type: application/json' -H 'Idempotency-Key: checkout-1' -d '{}' http://localhost:3000/carts/CART_ID/checkout
 ```
 
 Checkout returns HTTP 201, the order snapshot, and a `Location: /orders/<id>`
@@ -83,9 +84,13 @@ success; no real payment is performed.
 
 The checked-out cart cannot be edited or checked out again. It remains readable
 with its `orderId`; use the order endpoint for the historical purchase receipt.
-Current checkout accepts only `{}` and does not process idempotency keys. A
-repeat returns 409 `CART_ALREADY_CHECKED_OUT`; replay support is pending Task 6.
-Coupons are pending Task 7. Failed validation leaves stock/cart/order state
+Current checkout accepts only `{}` and requires exactly one `Idempotency-Key`.
+Use a new key for each new purchase; reuse it only to retry that same request.
+A matching successful retry returns the original 201, order body, and Location,
+without another order or stock deduction. Reusing a successful key for a different
+cart returns 409 `IDEMPOTENCY_KEY_CONFLICT`; using a fresh key on a completed cart
+returns 409 `CART_ALREADY_CHECKED_OUT`. Failed attempts do not bind the key.
+Coupons are pending Task 7. Failed validation leaves stock/cart/order/key state
 unchanged.
 
 ## Checks
@@ -101,7 +106,7 @@ server on an available loopback port and closes it after the test.
 
 ## Current scope
 
-Tasks 1–5 provide project tooling, app/server entry points, the health endpoint,
+Tasks 1–6 provide project tooling, app/server entry points, the health endpoint,
 the planned API contract/design documentation, domain types, shared validation
 and errors, and exact integer-paise money helpers with focused tests.
 
@@ -118,7 +123,12 @@ view/totals before replacing store state. Service and HTTP tests cover cart
 lifecycle, validation failures, stock checks, current-price/availability views,
 checkout failures, inventory deductions, and snapshots after catalog changes.
 
-Coupons, reports, the shared mutation lock, and key-based replay guarantees remain
-pending later tasks. Current cart/checkout methods are synchronous, with staged
-state replacement; explicit locking and competing-request tests are planned for
-Task 6. All state is lost on restart. No frontend is included.
+Every cart mutation and checkout uses one FIFO mutex owned by the store. State
+is captured after acquiring the lock, and changes are prepared before publication.
+Service and HTTP tests exercise last-item contention, matching retries, conflicting
+keys, waiting edits, invalid headers, and recovery after a failed attempt.
+
+The lock coordinates only services sharing that in-memory store in one process;
+it does not coordinate independent instances or survive restart. Keys have no
+expiry while the process runs. Coupons and reports remain pending later tasks.
+All state is lost on restart. No frontend is included.

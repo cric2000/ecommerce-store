@@ -6,7 +6,8 @@ This document records the proposed contract for the remaining backend tasks.
 Project tooling, application/server entry points, `GET /health`, domain types,
 quantity/money validation, exact money helpers, seeded catalog, cart lifecycle,
 JSON error handling, checkout without coupons, and order retrieval are implemented.
-Locking, idempotent replay, coupons, and reporting remain pending. The invariants
+Shared mutation locking and idempotent replay are implemented; coupons and
+reporting remain pending. The invariants
 and strategies below describe the target behavior; the current service does not
 yet enforce the full set. See [API.md](API.md) for
 the HTTP contract.
@@ -90,15 +91,23 @@ No custom transaction framework is needed: copying the small affected maps and
 records is sufficient. A process crash loses all in-memory state. This lock
 coordinates neither multiple processes nor multiple application instances.
 
-**Implementation status:** Cart methods and Task 5 checkout are synchronous.
-Checkout captures one state, revalidates quantities/products/stock, builds current
-price snapshots, and prepares new product, cart, and order maps. It also prepares
-a detached response before publishing the new state with one reference assignment.
-Validation/arithmetic failure on any line saves nothing, including deductions
-prepared for earlier lines. There is no `await` between reading and publication.
-Reads return detached records; order reads do not consult current catalog data.
-The asynchronous shared mutex and competing-request tests are still pending Task 6.
-Store state is an internal service/test dependency, not an object exposed over HTTP.
+**Implementation status:** The store owns a FIFO promise-based mutex. All cart
+mutations and checkout acquire it before capturing state. Each queued operation
+waits for its predecessor; `finally` releases the next waiter after either success
+or failure. Cart mutation/checkout service methods now return promises, and routes
+await them. Never call another lock-taking service method from inside the lock;
+this small mutex is not reentrant.
+
+Checkout captures one state, checks successful keys before live cart/inventory
+validation, builds current-price snapshots, and prepares new product/cart/order/key
+maps plus a detached response. One state-reference assignment commits everything.
+Validation/arithmetic failure saves nothing, including deductions prepared for
+earlier lines. Current critical-section work has no external I/O. Reads remain
+synchronous and return detached records from one state; order reads never consult
+current catalog data. Tests hold the lock across an explicit gate to prove that
+checkout and edits wait, and verify that checkout reads stock after acquiring it.
+Store state remains a trusted internal dependency, not an object exposed over HTTP.
+This coordinates one shared store in one process, not independent app instances.
 
 ## Decision: Checkout keys bind successful requests
 
@@ -125,6 +134,15 @@ with the same key. Cart contents are not part of the request fingerprint: before
 success, the request always acts on the cart's current contents. Successful keys
 remain until process restart; no expiry/cleanup is implemented. A restart loses
 keys and orders together. Clients cannot rely on durability across restarts.
+
+**Current identity:** Only `{}` is accepted until coupons land. Therefore the
+validated cart ID uniquely identifies the supported request; body formatting is
+irrelevant. A key record stores that cart ID and the immutable order ID. Checkout
+returns a detached copy of that saved order and the route reconstructs its original
+201 and Location. The key record is committed with the order/stock/cart maps.
+Task 7 will add the validated optional coupon code to identity. Missing, repeated,
+or malformed key headers return `INVALID_IDEMPOTENCY_KEY` (400); a successful key
+used for another cart returns `IDEMPOTENCY_KEY_CONFLICT` (409).
 
 ## Decision: Explicit generation for each order milestone
 
@@ -311,6 +329,13 @@ and snapshots surviving catalog changes/deletion. Success means payment success
 without an actual payment integration. Current checkout accepts only `{}`;
 coupon input is rejected rather than silently ignored.
 
+Task 6 adds the shared mutex and successful checkout key records. Service and HTTP
+tests cover last-item contention, simultaneous identical retries, conflicting key
+reuse, failed attempts leaving keys available, and replay after catalog deletion.
+Mutex tests check FIFO ordering, exclusion across an await, and release after both
+synchronous and asynchronous failures. Existing cart/order tests now await
+mutations and use `.rejects.toThrow()` for their errors.
+
 `Paise` is a number alias rather than a branded type. Runtime helpers validate
 its range and integer rules. Domain properties/arrays are `readonly`, and cart
 and coupon types link each status to its nullable/non-null order ID. These
@@ -320,11 +345,10 @@ belong to cart views and purchase prices belong to order snapshots. Domain error
 carry codes/messages/details only; HTTP status mapping and shared Express error
 handling now live separately in `src/http/errors.ts`.
 
-**Required and pending:** Locked checkout; key-based retry handling; configurable
-coupon milestones and generation/redemption; reconciled admin reports;
-competing/repeated-operation and coupon/report tests; final
-documentation and assignment audit. In particular, none of the concurrency,
-idempotency, or coupon guarantees are implemented yet.
+**Required and pending:** Configurable coupon milestones, generation/redemption,
+competing coupon-redemption tests, reconciled admin reporting and report tests,
+final documentation, and assignment audit. Checkout/stock concurrency and key
+replay are now implemented/tested for one process; coupon guarantees remain pending.
 
 Planned focused checks follow the agreed tasks: money/quantity edge cases; cart
 validation; failed checkout leaving all state unchanged; two carts competing for
@@ -371,12 +395,12 @@ above. None of these production properties comes from the in-process mutex.
 
 I used Codex to scaffold the project tooling, Express app, and health test; draft
 the design/API documentation; and implement the domain types, validation, money
-helpers, seeded catalog, cart/checkout/order services and routes, and focused
-tests. I also used it to run checks, including real HTTP requests and
+helpers, seeded catalog, cart/checkout/order services and routes, the shared
+mutex, checkout retry handling, and focused tests. I also used it to run checks, including real HTTP requests and
 service/domain tests.
 Sandbox restrictions required permitted reruns of dependency installation and
-local HTTP tests. These checks do not establish the pending mutex, key-based
-replay, or coupon guarantees.
+local HTTP tests. The current tests cover single-process stock/retry behavior;
+they do not establish the pending coupon guarantees or multi-instance coordination.
 
 The initial generated server included explicit validation of the `PORT`
 environment variable in `src/server.ts`. I rejected that defensive check as
