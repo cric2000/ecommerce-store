@@ -5,9 +5,10 @@
 This document records the proposed contract for the remaining backend tasks.
 Project tooling, application/server entry points, `GET /health`, domain types,
 quantity/money validation, exact money helpers, seeded catalog, cart lifecycle,
-and JSON error handling are implemented. Checkout, orders, coupons, and reporting
-remain pending. The invariants and strategies below describe the target behavior;
-the current service does not yet enforce the full set. See [API.md](API.md) for
+JSON error handling, checkout without coupons, and order retrieval are implemented.
+Locking, idempotent replay, coupons, and reporting remain pending. The invariants
+and strategies below describe the target behavior; the current service does not
+yet enforce the full set. See [API.md](API.md) for
 the HTTP contract.
 
 The design keeps a focused single-process service with routes, services, domain
@@ -89,13 +90,15 @@ No custom transaction framework is needed: copying the small affected maps and
 records is sufficient. A process crash loses all in-memory state. This lock
 coordinates neither multiple processes nor multiple application instances.
 
-**Implementation status:** Task 4 cart methods are synchronous: they capture the
-current state, validate the proposed cart and its priced view, then publish a new
-cart map/state without any `await` in between. Returned views/catalog records are
-detached copies. This gives cart writes a prepare-before-save boundary in one
-event-loop turn. The asynchronous shared mutex is still pending Task 6; checkout
-and competing purchase guarantees are not implemented yet. Store state is an
-internal service/test dependency, not a mutable object returned by HTTP routes.
+**Implementation status:** Cart methods and Task 5 checkout are synchronous.
+Checkout captures one state, revalidates quantities/products/stock, builds current
+price snapshots, and prepares new product, cart, and order maps. It also prepares
+a detached response before publishing the new state with one reference assignment.
+Validation/arithmetic failure on any line saves nothing, including deductions
+prepared for earlier lines. There is no `await` between reading and publication.
+Reads return detached records; order reads do not consult current catalog data.
+The asynchronous shared mutex and competing-request tests are still pending Task 6.
+Store state is an internal service/test dependency, not an object exposed over HTTP.
 
 ## Decision: Checkout keys bind successful requests
 
@@ -299,6 +302,15 @@ without reservations, current price/availability changes, missing products,
 failed-write preservation, detached responses, and request/response contracts.
 Express's existing 100 KiB JSON parser limit returns a structured 413 error.
 
+Task 5 adds checkout without coupons and order retrieval. Checkout revalidates
+stored quantities and unique product lines, current catalog data, and stock;
+stores an order snapshot; reduces inventory; and closes the cart in one staged
+state replacement. Tests cover failed checkout preserving all state, repeat
+checkout rejection, zero-total purchases, arithmetic overflow, detached receipts,
+and snapshots surviving catalog changes/deletion. Success means payment success
+without an actual payment integration. Current checkout accepts only `{}`;
+coupon input is rejected rather than silently ignored.
+
 `Paise` is a number alias rather than a branded type. Runtime helpers validate
 its range and integer rules. Domain properties/arrays are `readonly`, and cart
 and coupon types link each status to its nullable/non-null order ID. These
@@ -308,9 +320,9 @@ belong to cart views and purchase prices belong to order snapshots. Domain error
 carry codes/messages/details only; HTTP status mapping and shared Express error
 handling now live separately in `src/http/errors.ts`.
 
-**Required and pending:** Checkout/order routes and validation; order snapshots;
-locked checkout; retry handling; configurable coupon milestones,
-generation/redemption; reconciled admin reports; business/API tests; final
+**Required and pending:** Locked checkout; key-based retry handling; configurable
+coupon milestones and generation/redemption; reconciled admin reports;
+competing/repeated-operation and coupon/report tests; final
 documentation and assignment audit. In particular, none of the concurrency,
 idempotency, or coupon guarantees are implemented yet.
 
@@ -359,11 +371,12 @@ above. None of these production properties comes from the in-process mutex.
 
 I used Codex to scaffold the project tooling, Express app, and health test; draft
 the design/API documentation; and implement the domain types, validation, money
-helpers, seeded catalog, cart services/routes, and focused tests. I also used it
-to run checks, including real HTTP health/cart requests and service/domain tests.
+helpers, seeded catalog, cart/checkout/order services and routes, and focused
+tests. I also used it to run checks, including real HTTP requests and
+service/domain tests.
 Sandbox restrictions required permitted reruns of dependency installation and
-local HTTP tests. These checks
-do not establish the pending checkout/concurrency/coupon guarantees.
+local HTTP tests. These checks do not establish the pending mutex, key-based
+replay, or coupon guarantees.
 
 The initial generated server included explicit validation of the `PORT`
 environment variable in `src/server.ts`. I rejected that defensive check as

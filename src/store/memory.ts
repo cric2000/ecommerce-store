@@ -1,9 +1,10 @@
-import type { Cart, Product } from '../domain/types.js';
+import type { Cart, Order, Product } from '../domain/types.js';
 import { seedProducts } from './seed.js';
 
 export interface StoreState {
   readonly products: ReadonlyMap<string, Product>;
   readonly carts: ReadonlyMap<string, Cart>;
+  readonly orders: ReadonlyMap<string, Order>;
 }
 
 export class InMemoryStore {
@@ -13,6 +14,7 @@ export class InMemoryStore {
     this.state = {
       products: new Map(products.map((product) => [product.id, { ...product }])),
       carts: new Map(),
+      orders: new Map(),
     };
   }
 }

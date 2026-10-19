@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { jsonBody } from '../http/json.js';
 import type { CartService } from '../services/carts.js';
+import type { OrderService } from '../services/orders.js';
 
-export function cartRoutes(carts: CartService): Router {
+export function cartRoutes(carts: CartService, orders: OrderService): Router {
   const router = Router();
 
   router.post('/', jsonBody, (request, response) => {
@@ -26,6 +27,11 @@ export function cartRoutes(carts: CartService): Router {
 
   router.delete('/:cartId/items/:productId', (request, response) => {
     response.json(carts.removeItem(request.params.cartId, request.params.productId));
+  });
+
+  router.post<{ cartId: string }>('/:cartId/checkout', jsonBody, (request, response) => {
+    const order = orders.checkout(request.params.cartId, request.body);
+    response.location(`/orders/${order.id}`).status(201).json(order);
   });
 
   return router;

@@ -1,9 +1,9 @@
 # HTTP API contract
 
-**Status:** Health, catalog listing, cart lifecycle, and shared JSON error handling
-are implemented. Checkout, order retrieval, coupons, and reporting are planned
-for later tasks. See endpoint statuses below and [DECISIONS.md](DECISIONS.md) for
-the reasons, invariants, and limitations.
+**Status:** Health, catalog listing, cart lifecycle, checkout without coupons,
+order retrieval, and shared JSON error handling are implemented. Key-based
+retries, the shared mutation lock, coupons, and reporting remain pending. See
+endpoint statuses below and [DECISIONS.md](DECISIONS.md) for the design choices.
 
 ## Common conventions
 
@@ -25,16 +25,18 @@ the reasons, invariants, and limitations.
 - Currency is `INR`. All fields ending in `Paise` are nonnegative safe integer
   amounts; 100 paise = 1 rupee. Apply discounts once to the subtotal with half-up
   rounding, as specified in DECISIONS.md.
-- Coupon codes are nonblank strings of at most 128 characters and are matched
-  exactly, without trimming or case conversion. `null` is not a valid coupon code.
-- `Idempotency-Key` is required only on checkout. Use one value matching
-  `[A-Za-z0-9._:-]{1,128}` (for example a UUID); missing, repeated, or invalid key
+- Planned for Task 7: coupon codes are nonblank strings of at most 128 characters,
+  matched exactly, without trimming or case conversion. `null` is not a valid
+  coupon code.
+- Planned for Task 6: `Idempotency-Key` is required only on checkout. Use one value
+  matching `[A-Za-z0-9._:-]{1,128}` (for example a UUID); missing, repeated, or invalid key
   headers return 400. Keys are global within the running store, not scoped to carts.
+  Current checkout does not require or process keys and cannot replay a result.
 - Array ordering: products/cart lines/report product quantities sort by product ID;
   orders preserve the line ordering accepted at checkout.
 - Business errors use the common envelope below. When multiple business checks
-  fail, clients should not depend on a particular error winning. Successful key
-  lookup always precedes live cart/inventory/coupon validation.
+  fail, clients should not depend on a particular error winning. In the planned
+  retry flow, successful key lookup precedes live cart/inventory/coupon validation.
 
 ## Endpoint index
 
@@ -47,8 +49,8 @@ the reasons, invariants, and limitations.
 | `POST /carts/:cartId/items` | Add/increment item | 200 | No | Implemented |
 | `PATCH /carts/:cartId/items/:productId` | Set item quantity | 200 | No | Implemented |
 | `DELETE /carts/:cartId/items/:productId` | Remove item | 200 | No | Implemented |
-| `POST /carts/:cartId/checkout` | Place order, optional coupon | 201 (also replay) | No | Planned |
-| `GET /orders/:orderId` | Read purchase snapshot | 200 | No | Planned |
+| `POST /carts/:cartId/checkout` | Place order (coupons planned) | 201 (replay planned) | No | Implemented without coupons/replay |
+| `GET /orders/:orderId` | Read purchase snapshot | 200 | No | Implemented |
 | `POST /admin/coupons` | Generate one eligible coupon | 201 | Yes | Planned |
 | `GET /admin/report` | Reconciled read-only report | 200 | Yes | Planned |
 
@@ -104,6 +106,10 @@ and its non-null `orderId`. Its cart view still uses current catalog data, not
 historical purchase data; use the order endpoint for the immutable receipt.
 
 ### Order
+
+The discounted example below illustrates the planned coupon extension. Current
+checkout returns this shape with `coupon: null`, `discountPaise: 0`, and
+`totalPaise` equal to `subtotalPaise` (105 in this illustrative example).
 
 ```json
 {
@@ -199,8 +205,8 @@ generic message without exception details.
 Malformed JSON/shape, media-type, range, and unexpected errors apply wherever
 relevant in addition to the important endpoint-specific errors listed below.
 Implemented routes normalize domain failures, malformed JSON, oversized bodies,
-and unknown routes into this envelope. Checkout/coupon/order-specific errors
-remain planned with their endpoints.
+and unknown routes into this envelope. Key/coupon-specific errors remain planned
+with their extensions.
 
 ## GET /health
 
@@ -278,7 +284,31 @@ Repeating removal returns `CART_ITEM_NOT_FOUND`, not a second success.
 
 ## POST /carts/:cartId/checkout
 
-**Planned. Non-administrative.** Required header:
+**Implemented without coupons or key-based replay. Non-administrative.**
+
+Current request body: `{}` with `Content-Type: application/json`. No special
+header is required. Coupon/extra fields return `INVALID_REQUEST` (400).
+Revalidate a nonempty active cart, positive safe integer quantities, unique
+product lines, current catalog prices, and current stock. Prepare the order
+snapshot and all stock/cart changes before publishing them together. Failure
+before commit changes none of those records.
+
+Response: **201 Created**, an Order with `coupon: null`, `discountPaise: 0`, and
+`totalPaise` equal to the subtotal. Include `Location: /orders/<returned-id>`.
+Successful placement counts as payment success; no payment service is called.
+The cart remains readable and exposes the order ID but cannot be edited or
+checked out again. A repeat currently returns `CART_ALREADY_CHECKED_OUT` (409)
+rather than replaying the order, regardless of an `Idempotency-Key` header.
+
+Current important errors: `INVALID_REQUEST`/`INVALID_QUANTITY` (400),
+`CART_NOT_FOUND`/`PRODUCT_NOT_FOUND` (404), `EMPTY_CART`,
+`CART_ALREADY_CHECKED_OUT`, or `INSUFFICIENT_STOCK` (409), and
+`AMOUNT_OUT_OF_RANGE` (422). Common JSON/media-type errors also apply.
+
+### Planned checkout extensions (Tasks 6–7)
+
+The following key, replay, and coupon behavior is the target contract; it is not
+implemented yet. Required header:
 `Idempotency-Key: 0ddf3c21-f738-4ad6-90d3-3e414de061e6`.
 
 Request body without a coupon: `{}`. With a coupon:
@@ -317,13 +347,12 @@ Important errors: `INVALID_REQUEST`/`INVALID_IDEMPOTENCY_KEY` (400);
 `CART_ALREADY_CHECKED_OUT`, `INSUFFICIENT_STOCK`, `INVALID_COUPON`,
 `COUPON_ALREADY_REDEEMED`, or `IDEMPOTENCY_KEY_CONFLICT` (409).
 
-Task 5 will first implement this endpoint without coupons, Task 6 adds the key
-and competing-operation guarantees, and Task 7 adds coupon acceptance. Until
-those tasks finish, this is the target contract, not an implementation claim.
+Task 5 implements checkout without coupons. Task 6 adds the key and
+competing-operation guarantees; Task 7 adds coupon acceptance.
 
 ## GET /orders/:orderId
 
-**Planned. Non-administrative.** No request body.
+**Implemented. Non-administrative.** No request body.
 
 Response: **200 OK**, the immutable Order shape. Important error:
 `ORDER_NOT_FOUND` (404). Reads never recalculate from the current catalog.
