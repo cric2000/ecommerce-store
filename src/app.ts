@@ -6,10 +6,12 @@ import { cartRoutes } from './routes/carts.js';
 import { productRoutes } from './routes/products.js';
 import { orderRoutes } from './routes/orders.js';
 import { couponRoutes } from './routes/coupons.js';
+import { reportRoutes } from './routes/reports.js';
 import { CartService } from './services/carts.js';
 import { CatalogService } from './services/catalog.js';
 import { OrderService } from './services/orders.js';
 import { CouponService } from './services/coupons.js';
+import { ReportService } from './services/reports.js';
 import { InMemoryStore } from './store/memory.js';
 
 export function createApp(store = new InMemoryStore(undefined, readRewardConfig())): express.Express {
@@ -24,6 +26,7 @@ export function createApp(store = new InMemoryStore(undefined, readRewardConfig(
   app.use('/carts', cartRoutes(new CartService(store), orders));
   app.use('/orders', orderRoutes(orders));
   app.use('/admin/coupons', couponRoutes(new CouponService(store)));
+  app.use('/admin/report', reportRoutes(new ReportService(store)));
   app.use((_request, _response, next) => {
     next(new DomainError('ROUTE_NOT_FOUND', 'Route was not found'));
   });

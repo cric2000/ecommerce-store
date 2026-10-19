@@ -2,7 +2,7 @@
 
 **Status:** Health, catalog listing, cart lifecycle, checkout with optional
 coupons, order retrieval, coupon generation, shared locking, key-based retries,
-and JSON errors are implemented. Reporting remains pending. See
+JSON errors, and read-only administrative reporting are implemented. See
 endpoint statuses below and [DECISIONS.md](DECISIONS.md) for the design choices.
 
 ## Common conventions
@@ -51,7 +51,7 @@ endpoint statuses below and [DECISIONS.md](DECISIONS.md) for the design choices.
 | `POST /carts/:cartId/checkout` | Place order, optional coupon | 201 (also replay) | No | Implemented |
 | `GET /orders/:orderId` | Read purchase snapshot | 200 | No | Implemented |
 | `POST /admin/coupons` | Generate one eligible coupon | 201 | Yes | Implemented |
-| `GET /admin/report` | Reconciled read-only report | 200 | Yes | Planned |
+| `GET /admin/report` | Reconciled read-only report | 200 | Yes | Implemented |
 
 ## Response shapes
 
@@ -205,7 +205,7 @@ Malformed JSON/shape, media-type, range, and unexpected errors apply wherever
 relevant in addition to the important endpoint-specific errors listed below.
 Implemented routes normalize domain failures, malformed JSON, oversized bodies,
 and unknown routes into this envelope, including coupon generation/redemption
-failures. Reporting remains planned.
+failures and unsafe report aggregates.
 
 ## GET /health
 
@@ -376,7 +376,7 @@ idempotency key.
 
 ## GET /admin/report
 
-**Planned. Administrative; no authentication.** No request body.
+**Implemented. Administrative; no authentication.** No request body.
 
 Response: **200 OK**, for example:
 
@@ -408,4 +408,9 @@ totals. Count orders and actual coupon records. Include only purchased products,
 sorted by ID. An empty system returns `[]` and zero for all totals/counts.
 Repeated reads do not generate coupons, advance milestones, or mutate counters.
 No expected domain conflicts; `AMOUNT_OUT_OF_RANGE` (422) applies if an aggregate
-would exceed safe numeric output. The report reflects one store snapshot.
+would exceed safe numeric output. The report reflects one captured committed
+store state and runs synchronously without acquiring the mutation lock or changing
+state. Failed checkouts, active carts, and idempotent replays add no order records
+and therefore add no purchases or revenue. Current catalog price/name changes or
+deletion do not affect totals derived from saved order snapshots. Zero-total
+successful orders still count toward purchased quantities and total orders.

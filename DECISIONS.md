@@ -6,10 +6,10 @@ This document records the proposed contract for the remaining backend tasks.
 Project tooling, application/server entry points, `GET /health`, domain types,
 quantity/money validation, exact money helpers, seeded catalog, cart lifecycle,
 JSON errors, checkout with optional coupons, order retrieval, coupon generation,
-shared mutation locking, and idempotent replay are implemented. Reporting remains
-pending. The invariants and strategies below describe the target behavior; the
-current service does not yet enforce the full set. See [API.md](API.md) for the
-HTTP contract.
+shared mutation locking, idempotent replay, and read-only reporting are
+implemented. Final documentation review and the assignment audit remain pending.
+The decisions below describe the implementation and deferred concerns. See
+[API.md](API.md) for the HTTP contract.
 
 The design keeps a focused single-process service with routes, services, domain
 types, and an in-memory store. It prioritizes correctness, invariants, focused
@@ -312,6 +312,17 @@ history grows. No returns or cancellations adjust these figures in this scope.
 Product names are deliberately absent from quantity aggregates because names
 can change; product IDs remain the aggregation key.
 
+**Implementation:** `ReportService.getReport()` captures the state once and runs
+synchronously without taking the mutation lock or writing to the store. Existing
+money helpers sum stored subtotals, discounts, and totals with exact intermediates.
+Per-product quantities accumulate as `bigint` before range-checked numeric output.
+Unsafe aggregates return `AMOUNT_OUT_OF_RANGE` (422) without changing state. The
+store contains only placed orders; unsuccessful attempts create no order record,
+and successful retries return an existing record. Reports return fresh arrays and
+objects, so changing a returned report cannot alter service state. A read while
+checkout is queued sees the previous committed state; later reads see the complete
+new state, including coupon redemption and the discounted order together.
+
 ## Planned scope, deferrals, and validation
 
 **Implemented now:** Express health route; separate app/server; strict TypeScript;
@@ -352,6 +363,14 @@ competing redemption, matching replay, changed-code conflicts, half-up rounding,
 and zero-total successful purchases. Generation also waits for a queued checkout
 and reads its newly reached milestone under the same lock.
 
+Task 8 adds the read-only admin report and service/HTTP tests for quantities,
+revenue, discounts, coupon counts, and placed-order counts. Tests reconcile a
+mixed purchase history against receipts/coupon records, repeat reads while a
+coupon milestone is eligible, check detached responses, and verify independence
+from catalog changes. They also cover failures/replays/active carts, zero-total
+orders, safe-integer boundaries for revenue and quantities, and reads around a
+queued checkout. No report counters or generation side effects are added.
+
 `Paise` is a number alias rather than a branded type. Runtime helpers validate
 its range and integer rules. Domain properties/arrays are `readonly`, and cart
 and coupon types link each status to its nullable/non-null order ID. These
@@ -361,10 +380,11 @@ belong to cart views and purchase prices belong to order snapshots. Domain error
 carry codes/messages/details only; HTTP status mapping and shared Express error
 handling now live separately in `src/http/errors.ts`.
 
-**Required and pending:** Reconciled admin reporting and report tests, final API/
-operational documentation review, and assignment audit. Checkout stock, coupon,
-and key-replay guarantees are implemented/tested for the single-process store.
-Reporting is not implemented yet, and no multi-instance coordination is claimed.
+**Required and pending:** Final API/operational documentation review and the
+assignment audit. Checkout stock, coupon, key-replay, and report reconciliation
+behavior are implemented/tested for the single-process store. Clean-checkout
+verification and the final requirements audit remain separate pending tasks; no
+multi-instance coordination or completed submission is claimed.
 
 Planned focused checks follow the agreed tasks: money/quantity edge cases; cart
 validation; failed checkout leaving all state unchanged; two carts competing for
@@ -412,12 +432,12 @@ above. None of these production properties comes from the in-process mutex.
 I used Codex to scaffold the project tooling, Express app, and health test; draft
 the design/API documentation; and implement the domain types, validation, money
 helpers, seeded catalog, cart/checkout/order services and routes, the shared
-mutex, checkout retry handling, coupon configuration/generation/redemption, and
-focused tests. I also used it to run checks, including real HTTP requests and
+mutex, checkout retry handling, coupon configuration/generation/redemption,
+administrative reporting, and focused tests. I also used it to run checks, including real HTTP requests and
 service/domain tests.
 Sandbox restrictions required permitted reruns of dependency installation and
 local HTTP tests. The current tests cover single-process stock, retries, and
-coupon behavior; they do not establish multi-instance coordination.
+coupon/report behavior; they do not establish multi-instance coordination.
 
 The initial generated server included explicit validation of the `PORT`
 environment variable in `src/server.ts`. I rejected that defensive check as

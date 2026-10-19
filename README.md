@@ -2,11 +2,11 @@
 
 Backend take-home assignment using Node.js, TypeScript, Express, and Vitest.
 The complete requirements are preserved in [ASSIGNMENT.md](ASSIGNMENT.md).
-The planned HTTP contract is in [API.md](API.md), and the design choices,
+The HTTP contract is in [API.md](API.md), and the design choices,
 invariants, scope, and actual AI use are in [DECISIONS.md](DECISIONS.md).
 Health, catalog listing, cart lifecycle, checkout with optional coupons, order
-retrieval, shared locking, key-based retries, and coupon generation are implemented.
-Reporting is planned.
+retrieval, shared locking, key-based retries, coupon generation, and read-only
+administrative reporting are implemented.
 
 ## Requirements and install
 
@@ -128,6 +128,25 @@ rounding in paise; 100% discounts produce zero-total successful orders. A failed
 checkout does not consume a coupon. Matching checkout retries return the original
 order without redeeming again; changing the coupon on a successful key conflicts.
 
+## Administrative report
+
+```sh
+curl http://localhost:3000/admin/report
+```
+
+`GET /admin/report` is administrative and has no authentication. It returns
+purchased quantities by product ID, gross revenue before discounts, total
+discounts, net revenue, generated/available/redeemed coupon counts, and the
+successfully placed order count. Amounts are integer paise; only purchased
+products appear, sorted by ID. An empty store returns empty quantities and zero
+totals/counts.
+
+The report reads one committed state synchronously, using saved orders and coupon
+records. Current catalog prices, active carts, failed checkouts, and successful
+retries do not add revenue. Reading the report does not generate eligible coupons
+or mutate state. A quantity or monetary aggregate outside the safe-integer range
+returns 422 `AMOUNT_OUT_OF_RANGE` instead of an imprecise number.
+
 ## Checks
 
 ```sh
@@ -141,7 +160,7 @@ server on an available loopback port and closes it after the test.
 
 ## Current scope
 
-Tasks 1–7 provide project tooling, app/server entry points, the health endpoint,
+Tasks 1–8 provide project tooling, app/server entry points, the health endpoint,
 the planned API contract/design documentation, domain types, shared validation
 and errors, and exact integer-paise money helpers with focused tests.
 
@@ -152,7 +171,7 @@ with `bigint` intermediates and safe numeric outputs. Rupee conversion takes a
 decimal string rather than a floating-point number; formatted rupees are strings.
 
 `src/store/` holds seed data and per-app in-memory state. `src/services/` contains
-catalog/cart/checkout/order behavior, `src/routes/` translates HTTP requests and
+catalog/cart/checkout/order/coupon/report behavior, `src/routes/` translates HTTP requests and
 responses, and `src/http/` parses JSON and formats errors. Each cart write validates its proposed
 view/totals before replacing store state. Service and HTTP tests cover cart
 lifecycle, validation failures, stock checks, current-price/availability views,
@@ -166,5 +185,6 @@ keys, waiting edits, invalid headers, and recovery after a failed attempt.
 
 The lock coordinates only services sharing that in-memory store in one process;
 it does not coordinate independent instances or survive restart. Keys have no
-expiry while the process runs. Reports remain pending Task 8.
-All state is lost on restart. No frontend is included.
+expiry while the process runs. Reporting reads committed state without taking the
+mutation lock or writing counters. Final documentation review and the assignment
+audit remain pending. All state is lost on restart. No frontend is included.
