@@ -80,7 +80,7 @@ describe('checkout and order snapshots', () => {
     expect(() => orders.getOrder('missing')).toThrow(expect.objectContaining({ code: 'ORDER_NOT_FOUND' }));
   });
 
-  test.each([null, [], { couponCode: 'not-supported-yet' }, { totalPaise: 0 }])(
+  test.each([null, [], { couponCode: null }, { totalPaise: 0 }])(
     'rejects unsupported checkout body %j before changing state',
     async (body) => {
       const { store, carts, orders } = setup();

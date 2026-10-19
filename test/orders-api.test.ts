@@ -103,10 +103,10 @@ test('a cart added before another purchase rechecks stock and fails without part
   expect(store.state.carts.get(second)!.status).toBe('active');
 });
 
-test('unsupported coupon fields and malformed/missing bodies do not close a valid cart', async () => {
+test('invalid coupon values and malformed/missing bodies do not close a valid cart', async () => {
   const cartId = await createCart('product-1');
   const before = structuredClone(store.state);
-  for (const body of [{ couponCode: 'later' }, { totalPaise: 0 }, null, []]) {
+  for (const body of [{ couponCode: null }, { totalPaise: 0 }, null, []]) {
     const response = await post(`/carts/${cartId}/checkout`, body);
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: { code: 'INVALID_REQUEST' } });

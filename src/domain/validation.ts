@@ -1,6 +1,15 @@
 import { DomainError } from './errors.js';
 import type { Paise } from './types.js';
 
+export function validateCouponCode(value: unknown): string {
+  if (typeof value !== 'string' || value.trim().length === 0 || value.length > 128) {
+    throw new DomainError('INVALID_REQUEST', 'Coupon code must be a nonblank string of at most 128 characters', {
+      field: 'couponCode',
+    });
+  }
+  return value;
+}
+
 export function validateIdempotencyKey(value: unknown): string {
   if (
     typeof value !== 'string' || value.length < 1 || value.length > 128 ||
