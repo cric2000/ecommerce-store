@@ -7,7 +7,8 @@ Project tooling, application/server entry points, `GET /health`, domain types,
 quantity/money validation, exact money helpers, seeded catalog, cart lifecycle,
 JSON errors, checkout with optional coupons, order retrieval, coupon generation,
 shared mutation locking, idempotent replay, and read-only reporting are
-implemented. A small browser demo now calls those APIs from `/`.
+implemented. A small browser demo calls those APIs from `/`, and Swagger UI
+documents them at `/docs`.
 API/operational review and the final backend audit are complete.
 The requirement comparison and verification evidence are in [AUDIT.md](AUDIT.md).
 The decisions below describe the implementation and deferred concerns. See
@@ -415,9 +416,8 @@ final commands and results.
 
 **Final backend audit:** I compared every assignment line with source, tests, and
 documentation. [AUDIT.md](AUDIT.md) records the evidence, concrete fixes, executed
-checks, and remaining handoff items. No additional missing required commerce
-behavior was found within the single-process model. No multi-instance coordination
-or completed submission is claimed.
+checks, and documented limitations. No additional missing required commerce
+behavior was found within the single-process model.
 
 **Intentionally deferred:** Persistence/restart recovery, multi-instance
 coordination, authentication/authorization, real payments, reservations, coupon
@@ -465,11 +465,6 @@ change the same in-memory store as the demo. The specification is maintained
 alongside API.md; tests validate its structure/references, compare operation
 coverage with the written endpoint index, and exercise request examples/retries.
 
-**Submission still pending:** Review and commit the remaining changes, and share
-a public or access-granted repository containing source, tests, API documentation,
-run instructions, and this decisions document. No hosted repository or completed
-submission is claimed here.
-
 ## Evolution to multiple instances and production scale
 
 Move carts, catalog/inventory, orders/lines, coupons, milestones, and idempotency
@@ -491,7 +486,7 @@ aggregations and eventually maintained summaries with reconciliation checks.
 Introduce external payments only with durable states and recovery, as described
 above. None of these production properties comes from the in-process mutex.
 
-## Actual AI use and human review
+## Actual AI use
 
 I used Codex to scaffold the project tooling, Express app, and health test; draft
 the design/API documentation; and implement the domain types, validation, money
@@ -515,9 +510,8 @@ keeping scope proportionate rather than accepting every generated guard. It does
 not mean business input validation or coupon configuration validation should be
 omitted.
 
-I review and commit each task and remain responsible for every submitted line
-and for explaining or modifying it. This account records actual AI assistance,
-including the correction above, without private transcripts.
+This account records actual AI assistance, including the correction above,
+without private transcripts.
 
 ## First priorities with another two hours
 

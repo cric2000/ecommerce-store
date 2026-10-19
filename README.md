@@ -298,7 +298,7 @@ keys, waiting edits, invalid headers, and recovery after a failed attempt.
 The lock coordinates only services sharing that in-memory store in one process;
 it does not coordinate independent instances or survive restart. Keys have no
 expiry while the process runs. Reporting reads committed state without taking the
-mutation lock or writing counters. API/operational review and the final backend
-audit are complete; review, commit, and submission handoff remain pending.
+mutation lock or writing counters. API/operational review, the backend audit,
+and final acceptance verification are recorded in [AUDIT.md](AUDIT.md).
 All server state is lost on restart. The optional browser demo calls the same API;
 business rules remain in the backend.

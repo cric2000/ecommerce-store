@@ -4,7 +4,6 @@ I compared every line of [ASSIGNMENT.md](ASSIGNMENT.md) with the source, tests,
 API contract, and decisions. Adjacent or repeated requirements are grouped below;
 the line references cover the complete assignment. Covered means implementation
 or documentation evidence exists; executed check results are recorded separately.
-Review and handoff items require my final review or submission actions.
 
 ## Findings and changes
 
@@ -17,14 +16,13 @@ Review and handoff items require my final review or submission actions.
 - I added an explicit same-cart/different-key contention test. Existing tests
   covered matching retries and different carts competing for inventory; this
   test also checks that only the winning checkout key is bound.
-- I updated the API error contract and removed the stale pending-audit status
-  from the operational/design documents.
+- I updated the API error contract to document the decoding errors.
 
 ## Requirement evidence
 
 | Assignment lines | Requirement | Evidence | Result |
 | --- | --- | --- | --- |
-| 1–6 | Backend scope, overlapping requests, prioritization | [DECISIONS.md](DECISIONS.md) records the focused in-memory design and deferrals; submission constraints remain part of final handoff. | Covered / handoff |
+| 1–6 | Backend scope, overlapping requests, prioritization | [DECISIONS.md](DECISIONS.md) records the focused in-memory design, priorities, and deferrals. | Covered |
 | 7–8 | Product fields, five seeds, limited inventory | [types.ts](src/domain/types.ts), [seed.ts](src/store/seed.ts), and [carts.test.ts](test/carts.test.ts) verify five products and one single-stock product. | Covered |
 | 9–10 | Multiple cart lines; reject invalid products/quantities | [carts.ts](src/services/carts.ts), [validation.ts](src/domain/validation.ts), [carts.test.ts](test/carts.test.ts), and [carts-api.test.ts](test/carts-api.test.ts). | Covered |
 | 11 | Never oversell inventory | [orders.ts](src/services/orders.ts) validates under the store mutex; [checkout-concurrency.test.ts](test/checkout-concurrency.test.ts) and [orders-api.test.ts](test/orders-api.test.ts) compete for the last item. | Covered |
@@ -49,12 +47,71 @@ Review and handoff items require my final review or submission actions.
 | 58–59 | Focused failure tests and meaningful contention/retries | [checkout-concurrency.test.ts](test/checkout-concurrency.test.ts), [orders-api.test.ts](test/orders-api.test.ts), and [coupons-api.test.ts](test/coupons-api.test.ts) include gated/service and competing HTTP requests. | Covered |
 | 60–63 | Invariants, ambiguities, at least five material decisions | [DECISIONS.md](DECISIONS.md) contains invariants and nine decisions with context, alternatives, choice, reasons, and consequences. | Covered |
 | 64–68 | Transactions/retries, money, errors, deferrals, production evolution | The corresponding sections in [DECISIONS.md](DECISIONS.md) match the staged checkout, shared lock, exact arithmetic, HTTP errors, and single-process limits. | Covered |
-| 69–72 | Honest AI use, a real correction, further priorities, decision structure | [AI-use note](DECISIONS.md#actual-ai-use-and-human-review) records the rejected PORT guard; [further priorities](DECISIONS.md#first-priorities-with-another-two-hours) and all nine decision sections are present. | Covered |
-| 73–74 | Meaningful commits and validated AI assistance | `git log --oneline --reverse` shows setup, domain, cart, checkout, concurrency, coupon, report, and documentation increments; checks are recorded below. | Covered / review |
-| 75–81 | Ownership, explanation/debugging, no private transcripts | [DECISIONS.md](DECISIONS.md) explains invariants, transaction paths, weaknesses, configuration, and actual AI use. I still need to review and own every submitted change. No private transcripts are included. | Review |
-| 82–89 | Evaluation criteria | The source/test evidence above addresses correctness, reasoning, failures, domain/API design, tests, and focused code. Quality and interview ownership remain human assessments. | Evidence / review |
+| 69–72 | Honest AI use, a real correction, further priorities, decision structure | [AI-use note](DECISIONS.md#actual-ai-use) records the rejected PORT guard; [further priorities](DECISIONS.md#first-priorities-with-another-two-hours) and all nine decision sections are present. | Covered |
+| 73–74 | Meaningful commits and validated AI assistance | `git log --oneline --reverse` shows setup, domain, cart, checkout, concurrency, coupon, report, and documentation increments; checks are recorded below. | Covered |
+| 75–81 | Explanation/debugging, actual AI use, no private transcripts | [DECISIONS.md](DECISIONS.md) explains invariants, transaction paths, weaknesses, configuration, and actual AI use. No private transcripts are included. | Documented |
+| 82–89 | Evaluation criteria | The source/test evidence above addresses correctness, reasoning, failures, domain/API design, tests, and focused code. | Documented |
 | 90 | Optional frontend | The [browser demo](README.md#browser-demo) calls the backend for products, cart edits, coupon checkout, receipts, and reporting. Client/serving tests are in [demo-client.test.js](test/demo-client.test.js) and [demo-api.test.ts](test/demo-api.test.ts). | Implemented |
-| 91–98 | Submission artifacts and final handoff | Source, run instructions, API/example, tests, and decisions are present. I still need to review/commit this audit and share a public or access-granted repository. Remote visibility/access has not been verified. | Handoff |
+| 91–98 | Repository contents | Source, run instructions, API/example, tests, and decisions are present. Public repository access and the remote implementation commit were verified during final acceptance below. | Verified |
+
+## Final acceptance verification
+
+I checked implementation commit `c3a1b6cc976f08f3ed339a35b99e7fdd6489eda4`
+(`feat: add interactive Swagger API documentation`). I compared the assignment
+and planned acceptance checklist with the source, tests, API contract, and decisions. I found no missing
+required commerce behavior within the documented single-process model.
+
+| Acceptance item | Evidence | Result |
+| --- | --- | --- |
+| Five seeded products, including limited inventory | [seed.ts](src/store/seed.ts), catalog/cart tests, and fresh HTTP checks confirm five seeds and one desk lamp. | Passed |
+| Invalid products and quantities are rejected | [carts.test.ts](test/carts.test.ts), [validation.test.ts](test/validation.test.ts), and [carts-api.test.ts](test/carts-api.test.ts) cover missing products, invalid quantities, unknown properties, and unchanged state after failure. | Passed |
+| Competing checkouts cannot oversell | [checkout-concurrency.test.ts](test/checkout-concurrency.test.ts) and [orders-api.test.ts](test/orders-api.test.ts) compete for the last item. | Passed |
+| Full cart lifecycle and useful totals | [carts-api.test.ts](test/carts-api.test.ts) and the executable API example cover create/read/add/increment/update/remove and paise totals. | Passed |
+| Price and availability changes have defined behavior | [carts.test.ts](test/carts.test.ts), [orders.test.ts](test/orders.test.ts), and [DECISIONS.md](DECISIONS.md#decision-current-catalog-prices-and-immutable-orders) verify current prices/stock and preserved quantities. | Passed |
+| A cart can succeed at checkout only once | [orders.test.ts](test/orders.test.ts) and [checkout-concurrency.test.ts](test/checkout-concurrency.test.ts) cover closed carts and competing different keys for one cart. | Passed |
+| Retries do not duplicate orders or deductions | Service and HTTP concurrency tests cover matching replay, conflicting key reuse, unbound failed attempts, and replay before live-state validation. | Passed |
+| Order snapshots survive catalog changes | [orders.test.ts](test/orders.test.ts) covers changed/deleted products and detached receipts. | Passed |
+| Exact money and documented rounding | [money.test.ts](test/money.test.ts) covers bigint intermediates, safe boundaries, and half-up rounding; [DECISIONS.md](DECISIONS.md#decision-integer-paise-and-half-up-percentage-rounding) records the formula. | Passed |
+| Useful, distinguishable errors | HTTP tests cover validation, malformed JSON/URLs, damaged compression, missing resources, conflicts, media/body limits, unsafe amounts, and generic unexpected failures. | Passed |
+| Coupons require reached milestones and cannot duplicate one | [coupons.test.ts](test/coupons.test.ts) and [coupons-api.test.ts](test/coupons-api.test.ts) cover success-only eligibility, backlog, competing generation, and redeemed milestones. | Passed |
+| Coupon use is single-use, concurrent-safe, and preserved on failure | Coupon tests cover competing redemption, matching replay, and stock/arithmetic failures without consuming a coupon. | Passed |
+| Discounts are deterministic and totals nonnegative | Money/coupon tests cover half-up ties, zero-priced items, and 100% discounts. | Passed |
+| Reports contain every field, reconcile, and are read-only | [reports.test.ts](test/reports.test.ts), [reports-api.test.ts](test/reports-api.test.ts), and the executable example reconcile receipts, quantities, revenue, discounts, and coupons. | Passed |
+| Every required API operation is documented | [API.md](API.md), `/docs`, and `/docs/openapi.json` cover 11 operations; [docs-api.test.ts](test/docs-api.test.ts) validates OpenAPI and compares operation coverage. | Passed |
+| Single-process limits and production evolution are explained | [DECISIONS.md](DECISIONS.md#evolution-to-multiple-instances-and-production-scale) records database transactions, constraints, locks, durable keys, and payment recovery. | Verified |
+| Focused tests exercise meaningful failures and competing/repeated operations | The fresh suite passed 231 tests across 17 files, including service gates and competing HTTP requests. | Passed |
+| DECISIONS.md covers all required topics and matches the implementation | Nine structured decisions, invariants, selected ambiguities, deferrals, concurrency/retries, money/errors, actual AI use with a correction, and further priorities are present. | Verified |
+| Setup, run, seed, and checks need no private application service | Fresh locked installation, development and compiled startup, automatic seeds, syntax checks, and the API example passed. Lockfile downloads use the public npm registry. | Passed |
+| Meaningful commit history | History records tooling, decisions, domain/cart/checkout/concurrency/coupon/report work, audit fixes, frontend, and Swagger documentation as focused increments. | Verified |
+| Public repository contains the checked implementation | GitHub reports [cric2000/ecommerce-store](https://github.com/cric2000/ecommerce-store) as PUBLIC; remote `main` matched the checked commit. | Verified |
+| Implementation explanations | The source and decisions identify enforcement paths, retry/concurrency behavior, weaknesses, and configurable reward rules. | Documented |
+
+### Executed checks
+
+I extracted the tracked files from the checked commit into a fresh temporary
+directory, without copying `node_modules`, `dist`, ignored environment files, or
+Git metadata. Node.js was 24.21.0 and npm was 11.19.0.
+
+| Command/check | Actual result |
+| --- | --- |
+| `npm ci --cache /tmp/ecommerce-store-npm-cache` | Installed locked dependencies successfully; npm audit reported zero vulnerabilities. |
+| `npm test` | All 231 tests passed across 17 files, including HTTP and OpenAPI checks. |
+| `npm run typecheck` | Passed. |
+| `npm run build` | Passed. |
+| `node --check public/app.js` | Passed. |
+| `node --check public/client.js` | Passed. |
+| `node --check examples/checkout.mjs` | Passed. |
+| `PORT=3116 COUPON_INTERVAL=5 DISCOUNT_PERCENT=10 npm start` | Fresh compiled server started. |
+| `node examples/checkout.mjs http://localhost:3116` | Passed every API operation, six orders, coupon redemption, checkout replay, stock, and repeated reports. |
+| Compiled HTTP asset/contract checks | Demo and Swagger pages/assets returned 200; the served 11-operation OpenAPI document validated; private/package paths returned structured 404s; reads left the report unchanged. |
+| Restart with `PORT=3116 COUPON_INTERVAL=5 DISCOUNT_PERCENT=10 npm run dev` | Development startup, health, demo, and Swagger passed; five original seeds/inventory and an empty order/coupon report confirmed the documented reset. |
+| Local documentation checks | All local file links/anchors, nine JSON examples, nine structured decisions, and all 98 assignment lines validated. |
+| `git diff --check` | Passed after the final documentation update. |
+| GitHub read-only checks | Repository visibility was PUBLIC and remote `main` matched `c3a1b6cc976f08f3ed339a35b99e7fdd6489eda4`. |
+
+The API example produced gross revenue 67500 paise, discounts 500, net revenue
+67000, six orders, and one generated/redeemed coupon. I stopped both temporary
+verification servers afterward.
 
 ## Backend audit verification
 
@@ -143,13 +200,10 @@ The browser keeps its current cart, receipt, latest coupon, and uncertain retry
 key only while the page remains open. Reload recovery/history is outside this
 small demo. Server state and the single-process limitations remain unchanged.
 
-## Remaining limits and handoff
+## Documented limitations
 
 I found no additional missing required commerce behavior within the documented
 single-process model. State is intentionally lost on restart; separate processes
 do not coordinate. The complete deferral list and database/payment evolution are
 in [DECISIONS.md](DECISIONS.md). Authentication, real payments, CI,
 request logging, and deployment infrastructure remain outside this implementation.
-
-The configured Git remote alone does not establish public or reviewer access.
-Final review, committing these changes, and repository sharing remain pending.
