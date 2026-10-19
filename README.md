@@ -2,6 +2,9 @@
 
 Backend take-home assignment using Node.js, TypeScript, Express, and Vitest.
 The complete requirements are preserved in [ASSIGNMENT.md](ASSIGNMENT.md).
+The planned HTTP contract is in [API.md](API.md), and the design choices,
+invariants, scope, and actual AI use are in [DECISIONS.md](DECISIONS.md).
+Only the health endpoint is implemented; the other API behavior is planned.
 
 ## Requirements and install
 
@@ -49,6 +52,7 @@ server on an available loopback port and closes it after the test.
 
 ## Current scope
 
-Task 1 provides only project tooling, app/server entry points, and the health
-endpoint. Products, seed data, carts, checkout, coupons, reporting, API contracts,
-and `DECISIONS.md` are pending later tasks. No frontend is included.
+Tasks 1–2 provide project tooling, app/server entry points, the health endpoint,
+and the planned API contract/design documentation. Products, seed data, carts,
+checkout, coupons, reporting, and their business tests are pending later tasks.
+No frontend is included.
